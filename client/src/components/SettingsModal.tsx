@@ -55,9 +55,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md" aria-describedby="settings-description">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
+          <p id="settings-description" className="text-sm text-muted-foreground">
+            Adjust your application settings and preferences.
+          </p>
         </DialogHeader>
         
         <div className="space-y-4 py-3">
