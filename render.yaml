@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: gravitational-anomaly-mapper
+    env: node
+    plan: free
+    buildCommand: |
+      # Create necessary directories
+      mkdir -p dist
+      mkdir -p dist/public
+      
+      # Install dependencies
+      npm ci
+      
+      # Build client
+      npm run build:client
+      
+      # Build server
+      npm run build:server
+    startCommand: node render.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SESSION_SECRET
+        generateValue: true
