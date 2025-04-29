@@ -1,0 +1,11 @@
+{
+  "name": "gravitational-anomaly-mapper-shared",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "drizzle-orm": "^0.39.1",
+    "drizzle-zod": "^0.7.0",
+    "zod": "^3.24.2"
+  }
+}
