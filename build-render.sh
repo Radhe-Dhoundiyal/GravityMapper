@@ -8,6 +8,19 @@ echo "📁 Creating directories..."
 mkdir -p dist
 mkdir -p dist/public
 
+# Install dependencies for subdirectories
+echo "📦 Installing dependencies for client..."
+cd client && npm install
+cd ..
+
+echo "📦 Installing dependencies for server..."
+cd server && npm install
+cd ..
+
+echo "📦 Installing dependencies for shared..."
+cd shared && npm install
+cd ..
+
 # Build client
 echo "🔨 Building client..."
 npx vite build

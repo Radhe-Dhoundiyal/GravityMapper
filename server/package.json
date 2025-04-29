@@ -9,6 +9,7 @@
     "start": "NODE_ENV=production node ../dist/index.js"
   },
   "dependencies": {
+    "gravitational-anomaly-mapper-shared": "1.0.0",
     "@neondatabase/serverless": "^0.10.4",
     "connect-pg-simple": "^10.0.0",
     "drizzle-orm": "^0.39.1",

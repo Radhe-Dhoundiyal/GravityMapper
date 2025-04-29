@@ -10,12 +10,16 @@ services:
       
       # Install dependencies
       npm ci
+      cd client && npm ci
+      cd ../server && npm ci
+      cd ../shared && npm ci
+      cd ..
       
       # Build client
-      npm run build:client
+      npx vite build
       
       # Build server
-      npm run build:server
+      npx esbuild server/index.ts server/routes.ts server/storage.ts server/vite.ts --platform=node --packages=external --bundle --format=esm --outdir=dist
     startCommand: node render.js
     envVars:
       - key: NODE_ENV
