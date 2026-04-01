@@ -1,25 +1,13 @@
 services:
   - type: web
-    name: gravitational-anomaly-mapper
+    name: gadv-web-dashboard
     env: node
     plan: free
     buildCommand: |
-      # Create necessary directories
-      mkdir -p dist
-      mkdir -p dist/public
-      
-      # Install dependencies
+      mkdir -p dist dist/public
       npm ci
-      cd client && npm ci
-      cd ../server && npm ci
-      cd ../shared && npm ci
-      cd ..
-      
-      # Build client
       npx vite build
-      
-      # Build server
-      npx esbuild server/index.ts server/routes.ts server/storage.ts server/vite.ts --platform=node --packages=external --bundle --format=esm --outdir=dist
+      npx esbuild app/server/index.ts app/server/routes.ts app/server/storage.ts app/server/vite.ts --platform=node --packages=external --bundle --format=esm --outdir=dist
     startCommand: node render.js
     envVars:
       - key: NODE_ENV

@@ -1,28 +1,65 @@
-# Gravitational Anomaly Mapper
+# GADV — Gravitational Anomaly Detection Vehicle
 
-A web application for visualizing and mapping gravitational anomalies from ESP32 sensor data with real-time plotting and data export capabilities.
+GADV is an open-source scientific research platform for mapping local gravitational anomalies using low-cost MEMS sensors, satellite positioning, and a real-time web dashboard. The project investigates whether consumer-grade hardware can detect statistically meaningful gravitational mass anomalies when compared against GRACE satellite gravity baselines.
 
-## Project Structure
+## Repository Structure
 
-This project is organized as a monorepo with three main packages:
-
-- `client/`: React frontend application
-- `server/`: Express backend server 
-- `shared/`: Common types and utilities shared between client and server
-
-## Development
-
-To start the development server:
-
-```bash
-npm run dev
+```
+gadv/
+├── app/                    # Web dashboard (monorepo)
+│   ├── client/             # React + Vite frontend
+│   ├── server/             # Node.js + Express backend
+│   └── shared/             # Shared TypeScript schemas
+│
+├── hardware/               # ESP32 sensor node
+│   ├── sensors/            # Sensor specs and calibration
+│   ├── circuit/            # Schematics and PCB files
+│   └── rover/              # Mobile platform design
+│
+├── analysis/               # Data processing pipeline
+│   ├── scripts/            # Batch processing scripts (Python)
+│   └── notebooks/          # Jupyter analysis notebooks
+│
+├── data/                   # Survey datasets
+│   ├── raw/                # Unmodified field exports
+│   └── processed/          # Cleaned and calibrated data
+│
+├── experiments/            # Field work
+│   ├── protocols/          # Standardised measurement procedures
+│   └── logs/               # Per-experiment field records
+│
+├── docs/                   # Technical documentation
+│   ├── architecture.md     # System architecture
+│   ├── methodology.md      # Signal processing and anomaly calculation
+│   └── system-overview.md  # Full system description
+│
+└── paper/                  # Research manuscript
+    └── gadv_paper_draft.md # Working draft
 ```
 
-This will start both the client and server in development mode.
+## Web Dashboard
 
-## Connecting ESP32 Hardware
+The dashboard receives real-time data from the ESP32 sensor node via WebSocket, displays colour-coded anomaly readings on an interactive Leaflet map, and provides CSV/JSON data export.
 
-The application receives real-time data from ESP32 sensors via WebSocket. Your ESP32 device should connect to the `/ws` WebSocket endpoint and send data in the following format:
+### Running in Development
+
+```bash
+NODE_ENV=development tsx app/server/index.ts
+```
+
+Or press **Run** in Replit — the workflow is pre-configured.
+
+### Deploying to Render
+
+```bash
+./build-render.sh          # Test the build locally
+```
+
+Then follow `RENDER_DEPLOYMENT.md` for full Render setup. The `render.yaml` service definition is already configured.
+
+## ESP32 Integration
+
+The ESP32 firmware connects to the dashboard WebSocket endpoint (`/ws`) and streams data in the following format:
 
 ```json
 {
@@ -31,27 +68,21 @@ The application receives real-time data from ESP32 sensors via WebSocket. Your E
     "latitude": 37.7749,
     "longitude": -122.4194,
     "anomalyValue": 1.25,
-    "timestamp": "2025-04-29T10:30:00.000Z"
+    "timestamp": "2025-04-01T10:30:00.000Z"
   }
 }
 ```
 
-See the ESP32 connection documentation for detailed hardware integration instructions.
+See `hardware/` for sensor wiring, circuit schematics, and rover platform design.
 
-## Deployment
+## Research Goals
 
-This application is configured for deployment on Render. See `RENDER_DEPLOYMENT.md` for detailed deployment instructions.
+- Demonstrate sub-10 mGal anomaly detection with hardware costing under $100
+- Produce geo-referenced gravity maps comparable to published geological surveys
+- Provide an open platform for citizen science gravity research
 
-To test the build process locally:
+See `docs/methodology.md` for the full signal processing approach and uncertainty budget, and `paper/gadv_paper_draft.md` for the evolving research manuscript.
 
-```bash
-./build-render.sh
-```
+## Licence
 
-## Features
-
-- Real-time data visualization via WebSocket
-- Interactive map with color-coded anomaly points
-- Data filtering and export (CSV/JSON)
-- Connection settings for different data sources
-- Responsive design for mobile and desktop
+MIT — see `LICENSE` for details.
