@@ -43,6 +43,7 @@ export interface ExperimentRun {
   points: SensorDataPoint[];
   visible: boolean;
   color: string;        // hex color for map / chart
+  processingSource?: 'raw' | 'processed';  // how an uploaded run was loaded
 }
 
 // ─── Legacy types (unchanged) ──────────────────────────────────────────────────

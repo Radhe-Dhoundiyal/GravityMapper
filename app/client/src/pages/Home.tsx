@@ -25,8 +25,8 @@ import {
   MapColorMode,
 } from "@/lib/types";
 import { MOCK_RUNS } from "@/lib/mockData";
-import { parseGADVCsv } from "@/lib/csvParser";
 import { nextRunColor } from "@/lib/runColors";
+import { type UploadState } from "@/components/RunsPanel";
 
 let simulationInterval: NodeJS.Timeout | null = null;
 
@@ -57,6 +57,8 @@ const Home: React.FC = () => {
   const [activeRunId, setActiveRunId]   = useState<string | null>(null);
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
   const [colorMode, setColorMode]       = useState<MapColorMode>('anomaly');
+  const [uploadState, setUploadState]   = useState<UploadState>('idle');
+  const [uploadError, setUploadError]   = useState<string | undefined>(undefined);
 
   // ── Legacy live-stream state (still used for DataStreamPanel & stats) ───────
   const [dataLogs, setDataLogs]         = useState<SensorDataPoint[]>([]);
@@ -292,14 +294,85 @@ const Home: React.FC = () => {
   }, [showToast]);
 
   const handleUploadCSV = useCallback(async (file: File) => {
-    const text = await file.text();
+    setUploadState('uploading');
+    setUploadError(undefined);
+
+    // After 2 s with no response, assume pipeline is running
+    const processingTimer = setTimeout(() => setUploadState('processing'), 2000);
+
     try {
-      const { run, warnings } = parseGADVCsv(text, file.name);
-      setRuns(prev => [run, ...prev]);
-      showToast(`Loaded "${run.runId}" (${run.points.length} pts)`, 'success');
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch('/api/upload-csv', { method: 'POST', body: formData });
+      clearTimeout(processingTimer);
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        if (body?.error === 'no_python') {
+          const msg = 'Server cannot process raw CSV: Python not available. Export a pre-processed CSV (containing anomaly_final_mgal) from your local machine first.';
+          setUploadState('error');
+          setUploadError(msg);
+          showToast('Raw CSV requires Python on the server', 'error');
+        } else {
+          const msg = body?.message ?? `Upload failed (${res.status})`;
+          setUploadState('error');
+          setUploadError(msg);
+          showToast(`Upload error: ${msg}`, 'error');
+        }
+        return;
+      }
+
+      const data = await res.json();
+      const {
+        source, runId, experimentId, location, notes, warnings = [], points = [],
+      } = data;
+
+      if (points.length === 0) {
+        setUploadState('error');
+        setUploadError('No valid data rows found in the uploaded file.');
+        showToast('No data rows found', 'error');
+        return;
+      }
+
+      // Convert timestamp strings → Date objects
+      const parsedPoints: SensorDataPoint[] = points.map((p: any) => ({
+        ...p,
+        timestamp: new Date(p.timestamp),
+        runId,
+        experimentId,
+      }));
+
+      const firstTs = parsedPoints[0].timestamp;
+      const lastTs  = parsedPoints[parsedPoints.length - 1].timestamp;
+
+      const newRun: ExperimentRun = {
+        id:           `upload-${Date.now()}`,
+        runId,
+        experimentId,
+        mode:         'uploaded',
+        color:        nextRunColor(),
+        startTime:    firstTs instanceof Date ? firstTs : new Date(firstTs),
+        endTime:      lastTs  instanceof Date ? lastTs  : new Date(lastTs),
+        points:       parsedPoints,
+        visible:      true,
+        location,
+        notes,
+        processingSource: source,
+      };
+
+      setRuns(prev => [newRun, ...prev]);
+      setUploadState('done');
+      showToast(`Loaded "${runId}" — ${parsedPoints.length} pts (${source === 'raw' ? 'pipeline' : 'direct'})`, 'success');
       if (warnings.length > 0) showToast(warnings[0], 'warning');
+
+      // Reset to idle after 4 s
+      setTimeout(() => setUploadState('idle'), 4000);
     } catch (err: any) {
-      showToast(`CSV parse error: ${err.message}`, 'error');
+      clearTimeout(processingTimer);
+      setUploadState('error');
+      setUploadError(err.message ?? 'Network error during upload');
+      showToast(`Upload error: ${err.message}`, 'error');
     }
   }, [showToast]);
 
@@ -392,6 +465,8 @@ const Home: React.FC = () => {
                 onLoadMockData={handleLoadMockData}
                 onUploadCSV={handleUploadCSV}
                 onDeleteRun={handleDeleteRun}
+                uploadState={uploadState}
+                uploadError={uploadError}
               />
             </div>
           </div>
@@ -417,6 +492,8 @@ const Home: React.FC = () => {
           onLoadMockData={handleLoadMockData}
           onUploadCSV={handleUploadCSV}
           onDeleteRun={handleDeleteRun}
+          uploadState={uploadState}
+          uploadError={uploadError}
         />
 
         {/* Main content */}

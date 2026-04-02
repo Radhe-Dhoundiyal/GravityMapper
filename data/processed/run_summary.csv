@@ -1,2 +1,4 @@
 run_id,experiment_id,date,location,isolation_active,n_samples_raw,n_samples_static,n_samples_after_mad,run_duration_s,anomaly_mean_mgal,anomaly_std_mgal,anomaly_min_mgal,anomaly_max_mgal,mean_temp_mpu,gps_fix_fraction,smooth_window_s,mad_threshold,preprocessing_version,git_hash,processed_at_utc
 sample_log_template,E1,sample,unknown,1,10,10,10,0.09,-1686.309,0.0,-1686.309,-1686.309,28.49,1.0,7.5,3.0,1.0.0,cd40f49,2026-04-01T17:37:21+00:00
+1775136007937-wwh2w4bopbb-sample_log_template,E1,1775136007937-wwh2w4bopbb-sample,unknown,1,10,10,10,0.09,-1686.309,0.0,-1686.309,-1686.309,28.49,1.0,7.5,3.0,1.0.0,c69c3af,2026-04-02T13:20:10+00:00
+1775136044732-rz8la9b19k-sample_log_template,E1,1775136044732-rz8la9b19k-sample,unknown,1,10,10,10,0.09,-1686.309,0.0,-1686.309,-1686.309,28.49,1.0,7.5,3.0,1.0.0,c69c3af,2026-04-02T13:20:45+00:00

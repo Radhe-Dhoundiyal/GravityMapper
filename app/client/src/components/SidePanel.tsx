@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import StatCard from "./StatCard";
-import RunsPanel from "./RunsPanel";
+import RunsPanel, { UploadState } from "./RunsPanel";
 import StatsPanel from "./StatsPanel";
 import { Link, Unlink, Table, Code, Trash2 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
@@ -40,6 +40,8 @@ interface SidePanelProps {
   onLoadMockData: () => void;
   onUploadCSV: (file: File) => void;
   onDeleteRun: (id: string) => void;
+  uploadState?: UploadState;
+  uploadError?: string;
 }
 
 const SidePanel: React.FC<SidePanelProps> = ({
@@ -61,6 +63,8 @@ const SidePanel: React.FC<SidePanelProps> = ({
   onLoadMockData,
   onUploadCSV,
   onDeleteRun,
+  uploadState,
+  uploadError,
 }) => {
   const isConnected = connectionStatus !== 'disconnected';
   const maxAnomalyPercent = Math.min(anomalyStats.maxAnomaly / 2 * 100, 100);
@@ -239,6 +243,8 @@ const SidePanel: React.FC<SidePanelProps> = ({
             onLoadMockData={onLoadMockData}
             onUploadCSV={onUploadCSV}
             onDeleteRun={onDeleteRun}
+            uploadState={uploadState}
+            uploadError={uploadError}
           />
         </TabsContent>
 

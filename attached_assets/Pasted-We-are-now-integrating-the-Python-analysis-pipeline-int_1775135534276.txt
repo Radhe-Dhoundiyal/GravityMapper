@@ -1,0 +1,83 @@
+We are now integrating the Python analysis pipeline into the GADV dashboard workflow.
+
+Current architecture:
+- React + Vite frontend in app/client
+- Node/Express backend in app/server
+- shared TypeScript schemas in app/shared
+- Python processing script at analysis/scripts/gravity_pipeline.py
+
+Goal:
+Allow the dashboard to ingest uploaded CSV files and load them as processed experiment runs.
+
+Requirements:
+
+1. Add backend support for CSV upload processing
+Create an upload endpoint in the Node/Express backend that accepts a CSV file.
+
+2. Detect raw vs processed CSV
+If the uploaded CSV already contains processed fields like anomaly_final_mgal, anomaly_smoothed_mgal, or outlier_flag, load it directly.
+If it is raw, run the Python pipeline script:
+analysis/scripts/gravity_pipeline.py
+
+3. Server-side pipeline execution
+Implement server-side execution of the Python script for raw uploads.
+Use a safe child process call.
+Store uploaded files in a temporary uploads directory.
+Read the generated processed CSV from data/processed/ or a temp output location.
+
+4. Return processed run data to the frontend
+The backend should return:
+- run metadata
+- parsed processed rows
+- whether the source was raw or processed
+- any pipeline warnings/errors
+
+5. Frontend integration
+Update the CSV upload workflow so that:
+- uploaded raw logs are processed automatically
+- the resulting processed run is added to the Runs tab
+- processed anomaly data is used in the map, stats, and plot panels
+
+6. Data field priority
+When processed fields exist, prefer:
+- anomaly_final_mgal
+- anomaly_smoothed_mgal
+- outlier_flag
+Fallback to anomalyValue or anomaly_best_mgal only if needed.
+
+7. Summary statistics
+For uploaded processed runs, compute or display:
+- mean anomaly
+- std deviation
+- sample count
+- percent stationary
+- percent outliers
+- latitude/longitude bounds
+- time span
+
+8. UI status
+Show upload/processing states clearly:
+- uploading
+- processing
+- loaded
+- failed
+
+9. Preserve current features
+Do not remove:
+- simulation mode
+- live streaming mode
+- interactive map
+- runs tab
+- stats tab
+- live feed / plot / compare panels
+
+10. Deployment safety
+Do not assume Python is always available in production.
+If Python execution is unavailable, fail gracefully with a clear message like:
+“Raw CSV processing requires Python pipeline support on the server. Please upload a processed CSV or enable Python on the backend.”
+
+11. Return:
+- all changed files
+- architecture summary
+- any environment/setup steps needed
+- whether Render deployment needs adjustment for Python support
