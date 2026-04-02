@@ -1,175 +1,194 @@
 import React, { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { AnomalyDataPoint, AnomalyThresholds, AnomalyFilters, AppSettings } from "@/lib/types";
+import { AnomalyThresholds, AnomalyFilters, AppSettings, ExperimentRun, MapColorMode, SensorDataPoint } from "@/lib/types";
 
 interface MapViewProps {
-  dataPoints: AnomalyDataPoint[];
+  runs: ExperimentRun[];
   settings: AppSettings;
   filters: AnomalyFilters;
   thresholds: AnomalyThresholds;
-  onMarkerClick?: (point: AnomalyDataPoint) => void;
+  colorMode: MapColorMode;
+  onMarkerClick?: (point: SensorDataPoint, run: ExperimentRun) => void;
+}
+
+function anomalyColor(value: number, thresholds: AnomalyThresholds): string {
+  if (value < thresholds.medium) return '#4CAF50';
+  if (value < thresholds.high)   return '#FFEB3B';
+  return '#F44336';
 }
 
 const MapView: React.FC<MapViewProps> = ({
-  dataPoints,
+  runs,
   settings,
   filters,
   thresholds,
-  onMarkerClick
+  colorMode,
+  onMarkerClick,
 }) => {
-  const mapRef = useRef<L.Map | null>(null);
+  const mapRef          = useRef<L.Map | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
 
-  // Initialize map on component mount
+  // ── Init map ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
-    
-    // Create map instance
-    const map = L.map(mapContainerRef.current).setView([settings.defaultLat, settings.defaultLng], 13);
+
+    const map = L.map(mapContainerRef.current).setView(
+      [settings.defaultLat, settings.defaultLng], 13
+    );
     mapRef.current = map;
-    
-    // Add appropriate tile layer based on settings
-    let tileLayer;
-    if (settings.mapStyle === 'satellite') {
-      tileLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
-      });
-    } else {
-      tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-      });
-    }
-    tileLayer.addTo(map);
-    
-    // Create markers layer
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
     const markersLayer = L.layerGroup().addTo(map);
     markersLayerRef.current = markersLayer;
-    
-    // Cleanup on unmount
+
+    // Map custom events (zoom / center)
+    const onZoomIn  = () => map.zoomIn();
+    const onZoomOut = () => map.zoomOut();
+    const onCenter  = (e: CustomEvent) => {
+      if (e.detail) map.setView([e.detail.lat, e.detail.lng], map.getZoom());
+    };
+    window.addEventListener('map:zoomIn',  onZoomIn);
+    window.addEventListener('map:zoomOut', onZoomOut);
+    window.addEventListener('map:center',  onCenter as EventListener);
+
     return () => {
+      window.removeEventListener('map:zoomIn',  onZoomIn);
+      window.removeEventListener('map:zoomOut', onZoomOut);
+      window.removeEventListener('map:center',  onCenter as EventListener);
       map.remove();
-      mapRef.current = null;
+      mapRef.current          = null;
       markersLayerRef.current = null;
     };
   }, []);
 
-  // Update tile layer when map style changes
+  // ── Tile layer update ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!mapRef.current) return;
-    
     const map = mapRef.current;
-    
-    // Remove existing layers
-    map.eachLayer((layer) => {
-      if (layer instanceof L.TileLayer) {
-        map.removeLayer(layer);
-      }
-    });
-    
-    // Add new tile layer based on settings
-    let tileLayer;
+
+    map.eachLayer(l => { if (l instanceof L.TileLayer) map.removeLayer(l); });
+
+    let url: string;
+    let attr: string;
     if (settings.mapStyle === 'satellite') {
-      tileLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
-      });
+      url  = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+      attr = 'Tiles &copy; Esri';
     } else if (settings.mapStyle === 'terrain') {
-      tileLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-        attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)'
-      });
+      url  = 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png';
+      attr = 'Map &copy; OpenTopoMap';
     } else {
-      tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-      });
+      url  = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+      attr = '&copy; OpenStreetMap contributors';
     }
-    
-    tileLayer.addTo(map);
+    L.tileLayer(url, { attribution: attr }).addTo(map);
   }, [settings.mapStyle]);
 
-  // Update markers when data points or filters change
+  // ── Markers update ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!mapRef.current || !markersLayerRef.current) return;
-    
     const markersLayer = markersLayerRef.current;
-    
-    // Clear existing markers
     markersLayer.clearLayers();
-    
-    // Filter data points
-    const filteredPoints = dataPoints.filter(point => {
-      // Apply minimum anomaly filter
-      if (point.anomalyValue < filters.minAnomaly) {
-        return false;
-      }
-      
-      // Apply time filter
-      if (filters.timeRange !== 'all') {
-        const now = new Date();
-        const pointTime = new Date(point.timestamp);
-        
-        if (filters.timeRange === 'hour') {
-          return (now.getTime() - pointTime.getTime()) <= 3600000; // 1 hour in ms
-        } else if (filters.timeRange === 'today') {
-          return pointTime.setHours(0, 0, 0, 0) === now.setHours(0, 0, 0, 0);
-        } else if (filters.timeRange === 'week') {
-          const weekStart = new Date(now);
-          weekStart.setDate(now.getDate() - now.getDay());
-          weekStart.setHours(0, 0, 0, 0);
-          return pointTime >= weekStart;
+
+    const now = new Date();
+    let firstPoint: SensorDataPoint | null = null;
+    let totalRendered = 0;
+
+    runs.forEach(run => {
+      if (!run.visible) return;
+
+      const filtered = run.points.filter(p => {
+        if (p.anomalyValue < filters.minAnomaly) return false;
+        if (filters.timeRange !== 'all') {
+          const t = new Date(p.timestamp);
+          if (filters.timeRange === 'hour')  return now.getTime() - t.getTime() <= 3_600_000;
+          if (filters.timeRange === 'today') return t.toDateString() === now.toDateString();
+          if (filters.timeRange === 'week') {
+            const weekStart = new Date(now);
+            weekStart.setDate(now.getDate() - now.getDay());
+            weekStart.setHours(0, 0, 0, 0);
+            return t >= weekStart;
+          }
         }
-      }
-      
-      return true;
-    });
-    
-    // Add filtered points to map
-    filteredPoints.forEach(point => {
-      // Determine color based on anomaly value
-      let color;
-      if (point.anomalyValue < thresholds.medium) {
-        color = '#4CAF50'; // Low - Green
-      } else if (point.anomalyValue < thresholds.high) {
-        color = '#FFEB3B'; // Medium - Yellow
-      } else {
-        color = '#F44336'; // High - Red
-      }
-      
-      // Create marker
-      const marker = L.circleMarker([point.latitude, point.longitude], {
-        radius: 8,
-        fillColor: color,
-        color: '#fff',
-        weight: 1,
-        opacity: 1,
-        fillOpacity: 0.8
+        return true;
       });
-      
-      // Add popup with info
-      marker.bindPopup(`
-        <div class="font-sans p-1">
-          <div class="font-medium">Anomaly: ${point.anomalyValue.toFixed(3)}</div>
-          <div class="text-xs text-gray-600">Lat: ${point.latitude.toFixed(6)}</div>
-          <div class="text-xs text-gray-600">Lng: ${point.longitude.toFixed(6)}</div>
-          <div class="text-xs text-gray-600">Time: ${new Date(point.timestamp).toLocaleTimeString()}</div>
-        </div>
-      `);
-      
-      // Handle marker click
-      if (onMarkerClick) {
-        marker.on('click', () => onMarkerClick(point));
+
+      if (filtered.length === 0) return;
+
+      // Polyline trace for each run
+      if (filtered.length > 1) {
+        const latlngs = filtered.map(p => [p.latitude, p.longitude] as [number, number]);
+        L.polyline(latlngs, {
+          color: run.color,
+          weight: 1.5,
+          opacity: 0.4,
+          dashArray: '4 4',
+        }).addTo(markersLayer);
       }
-      
-      // Add to markers layer
-      markersLayer.addLayer(marker);
+
+      filtered.forEach(p => {
+        if (!firstPoint) firstPoint = p;
+        totalRendered++;
+
+        const fill = colorMode === 'run'
+          ? run.color
+          : anomalyColor(p.anomalyValue, thresholds);
+
+        const isOutlier = p.outlierFlag === true;
+        const radius = isOutlier ? 10 : 7;
+
+        const marker = L.circleMarker([p.latitude, p.longitude], {
+          radius,
+          fillColor: fill,
+          color: isOutlier ? '#ff0000' : '#fff',
+          weight: isOutlier ? 2 : 1,
+          opacity: 1,
+          fillOpacity: 0.85,
+        });
+
+        marker.bindPopup(`
+          <div class="font-sans p-1 text-xs">
+            <div class="font-semibold mb-1" style="color:${run.color}">${run.experimentId} — ${run.runId.split('_').slice(-1)[0]}</div>
+            <div>Δg: <b>${p.anomalyValue.toFixed(3)}</b> mGal</div>
+            ${p.anomalySmoothed != null ? `<div>Smooth: ${p.anomalySmoothed.toFixed(3)} mGal</div>` : ''}
+            <div class="text-gray-500 mt-1">
+              ${p.latitude.toFixed(6)}°, ${p.longitude.toFixed(6)}°
+            </div>
+            ${p.altitude != null ? `<div class="text-gray-500">Alt: ${p.altitude.toFixed(1)} m</div>` : ''}
+            ${p.temperature != null ? `<div class="text-gray-500">Temp: ${p.temperature.toFixed(1)} °C</div>` : ''}
+            <div class="text-gray-400 mt-1">${new Date(p.timestamp).toLocaleTimeString()}</div>
+            ${isOutlier ? `<div class="text-red-500 font-medium mt-1">⚠ Outlier</div>` : ''}
+          </div>
+        `);
+
+        if (onMarkerClick) {
+          marker.on('click', () => onMarkerClick(p, run));
+        }
+
+        markersLayer.addLayer(marker);
+      });
     });
-    
-    // If this is the first point, center map on it
-    if (filteredPoints.length > 0 && dataPoints.length === 1) {
-      const firstPoint = filteredPoints[0];
+
+    // Auto-centre on first load
+    if (firstPoint && totalRendered === 1) {
       mapRef.current?.setView([firstPoint.latitude, firstPoint.longitude], 15);
     }
-  }, [dataPoints, filters, thresholds, onMarkerClick]);
+    // Fit all visible points when runs change
+    if (totalRendered > 1 && firstPoint) {
+      const allLatLngs: L.LatLngExpression[] = [];
+      runs.forEach(r => {
+        if (r.visible) r.points.forEach(p => allLatLngs.push([p.latitude, p.longitude]));
+      });
+      if (allLatLngs.length > 0) {
+        try { mapRef.current?.fitBounds(L.latLngBounds(allLatLngs), { padding: [30, 30], maxZoom: 17 }); }
+        catch { /* ignore invalid bounds */ }
+      }
+    }
+  }, [runs, filters, thresholds, colorMode, onMarkerClick]);
 
   return <div ref={mapContainerRef} className="flex-1" />;
 };

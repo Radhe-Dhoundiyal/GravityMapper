@@ -1,0 +1,112 @@
+This repository is a research project called GADV (Gravitational Anomaly Detection Vehicle). The web app should now evolve from a simple anomaly map into an experiment dashboard for gravimetric sensing research.
+
+Do not redesign the entire app. Preserve the current React + Vite frontend, Node/Express backend, and Render compatibility. Keep the current map functionality intact.
+
+I want you to extend the app so it supports experiment-oriented workflows.
+
+Tasks:
+
+1. Add support for experiment metadata
+Create or update shared TypeScript schemas so each run/stream can include:
+- runId
+- experimentId
+- experimentType (E1, E2, E3, E4, E5, E6, CAL)
+- mode (live, simulated, uploaded)
+- timestamp
+- notes
+- location label
+
+2. Expand the anomaly data model
+The app currently receives simple anomaly points. Extend the data model so it can optionally include:
+- ax
+- ay
+- az
+- gx
+- gy
+- gz
+- pressure
+- temperature
+- altitude
+- latitude
+- longitude
+- speed
+- hdop
+- satellites
+- fixQuality
+- anomalyValue
+- anomalySmoothed
+- platformStationary
+- outlierFlag
+
+The app must still work if some of these fields are missing.
+
+3. Add CSV upload support
+Allow users to upload a CSV log file from data/raw/ or data/processed/.
+Parse it on the client or server and load it as a run into the dashboard.
+The uploaded run should appear as a named run with metadata and map points.
+
+4. Add a run history / run selector panel
+Add a side panel or tab that shows all currently loaded runs:
+- run ID
+- experiment type
+- mode
+- sample count
+- time span
+- notes
+
+Allow selecting one or multiple runs.
+
+5. Add a summary statistics panel
+For the selected run(s), show:
+- mean anomaly
+- standard deviation
+- sample count
+- latitude/longitude range
+- time span
+- percent stationary
+- percent flagged as outliers
+
+6. Add raw sensor display cards
+Add compact cards or a panel showing latest/raw values for:
+- acceleration
+- gyro
+- pressure
+- temperature
+- altitude
+- GPS fix info
+These should update live for streaming mode and show summary values for uploaded runs.
+
+7. Add basic anomaly plot support
+Add a simple time-series plot for anomaly values:
+- anomalyValue
+- anomalySmoothed if available
+- highlight outliers if outlierFlag exists
+
+Use the charting library already present in the repo if any; otherwise add a lightweight one that fits the current stack.
+
+8. Add run comparison support
+Allow selecting two runs and comparing them at a basic level:
+- mean anomaly
+- std deviation
+- sample count
+- overlapping map traces if available
+
+Keep this simple and clean.
+
+9. Keep the current map intact
+Do not remove the interactive map. Instead, let users:
+- view points by run
+- filter visible runs
+- toggle run visibility
+- color by anomaly or by run
+
+10. Add mock/sample data support
+Create a small built-in mock dataset or loader using the existing sample log template so the dashboard can demonstrate these features even without live rover data.
+
+11. Do not break deployment
+Preserve existing npm scripts, Vite config, server startup, and Render deployment compatibility.
+
+12. Return:
+- all files changed
+- a summary of the new UI features
+- any manual steps needed after generation

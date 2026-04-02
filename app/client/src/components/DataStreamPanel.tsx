@@ -1,10 +1,8 @@
 import React from "react";
-import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp } from "lucide-react";
-import { AnomalyDataPoint, AnomalyThresholds } from "@/lib/types";
+import { SensorDataPoint, AnomalyThresholds } from "@/lib/types";
 
 interface DataStreamPanelProps {
-  dataLogs: AnomalyDataPoint[];
+  dataLogs: SensorDataPoint[];
   isExpanded: boolean;
   onToggleExpand: () => void;
   thresholds: AnomalyThresholds;
@@ -14,42 +12,39 @@ const DataStreamPanel: React.FC<DataStreamPanelProps> = ({
   dataLogs,
   isExpanded,
   onToggleExpand,
-  thresholds
+  thresholds,
 }) => {
-  // Determine anomaly class based on value
   const getAnomalyClass = (value: number) => {
-    if (value < thresholds.medium) {
-      return "text-green-600";
-    } else if (value < thresholds.high) {
-      return "text-yellow-600";
-    } else {
-      return "text-red-600";
-    }
+    if (value < thresholds.medium)  return "text-green-600";
+    if (value < thresholds.high)    return "text-yellow-600";
+    return "text-red-600";
   };
 
   return (
-    <div className={`bg-white shadow-inner border-t border-gray-200 ${isExpanded ? 'h-32' : 'h-6'} overflow-y-auto font-mono text-xs transition-all duration-200`}>
-      <div className="p-2 text-gray-600 font-sans font-medium border-b border-gray-200 sticky top-0 bg-white flex justify-between items-center">
-        <span>Data Stream</span>
-        <Button variant="ghost" size="icon" className="h-5 w-5 p-0" onClick={onToggleExpand}>
-          {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-        </Button>
-      </div>
-      {isExpanded && (
-        <div className="p-2 space-y-1">
-          {dataLogs.map((log, index) => (
-            <div key={index} className="grid grid-cols-4 gap-2">
-              <div>{new Date(log.timestamp).toLocaleTimeString()}</div>
-              <div>{log.latitude.toFixed(6)}° {log.latitude >= 0 ? 'N' : 'S'}</div>
-              <div>{log.longitude.toFixed(6)}° {log.longitude >= 0 ? 'E' : 'W'}</div>
+    <div className="h-full overflow-y-auto font-mono text-xs bg-white">
+      {dataLogs.length === 0 ? (
+        <div className="flex items-center justify-center h-full text-gray-400">
+          Waiting for live data…
+        </div>
+      ) : (
+        <div className="p-2 space-y-0.5">
+          {[...dataLogs].reverse().map((log, index) => (
+            <div key={index} className="grid gap-x-2 text-[10px] leading-5" style={{ gridTemplateColumns: '70px 100px 100px 90px auto' }}>
+              <div className="text-gray-400">{new Date(log.timestamp).toLocaleTimeString()}</div>
+              <div>{log.latitude.toFixed(5)}° {log.latitude >= 0 ? 'N' : 'S'}</div>
+              <div>{log.longitude.toFixed(5)}° {log.longitude >= 0 ? 'E' : 'W'}</div>
               <div className={getAnomalyClass(log.anomalyValue)}>
-                Δg: {log.anomalyValue.toFixed(2)}
+                Δg {log.anomalyValue.toFixed(3)}
+              </div>
+              {/* Optional extended fields */}
+              <div className="text-gray-400 truncate">
+                {log.temperature != null && `${log.temperature.toFixed(1)}°C `}
+                {log.altitude != null && `${log.altitude.toFixed(0)}m `}
+                {log.satellites != null && `${log.satellites}sat`}
+                {log.outlierFlag && <span className="text-red-400 ml-1">⚠</span>}
               </div>
             </div>
           ))}
-          {dataLogs.length === 0 && (
-            <div className="text-center text-gray-500 py-2">No data available</div>
-          )}
         </div>
       )}
     </div>
