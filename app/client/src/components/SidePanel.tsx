@@ -7,6 +7,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import StatCard from "./StatCard";
 import RunsPanel, { UploadState } from "./RunsPanel";
 import StatsPanel from "./StatsPanel";
+import ExperimentsPanel from "./ExperimentsPanel";
+import { Experiment } from "@/lib/types";
 import { Link, Unlink, Table, Code, Trash2 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
@@ -42,6 +44,14 @@ interface SidePanelProps {
   onDeleteRun: (id: string) => void;
   uploadState?: UploadState;
   uploadError?: string;
+  // experiments
+  experiments: Experiment[];
+  selectedExperimentId: string | null;
+  onSelectExperiment: (id: string | null) => void;
+  onCreateExperiment: (data: { name: string; experimentType: string; description: string }) => void;
+  onDeleteExperiment: (id: string) => void;
+  onAssignRunToExperiment: (runId: string, experimentId: string | null) => void;
+  onCreateExperimentForRun: (runId: string) => void;
 }
 
 const SidePanel: React.FC<SidePanelProps> = ({
@@ -65,6 +75,13 @@ const SidePanel: React.FC<SidePanelProps> = ({
   onDeleteRun,
   uploadState,
   uploadError,
+  experiments,
+  selectedExperimentId,
+  onSelectExperiment,
+  onCreateExperiment,
+  onDeleteExperiment,
+  onAssignRunToExperiment,
+  onCreateExperimentForRun,
 }) => {
   const isConnected = connectionStatus !== 'disconnected';
   const maxAnomalyPercent = Math.min(anomalyStats.maxAnomaly / 2 * 100, 100);
@@ -80,12 +97,18 @@ const SidePanel: React.FC<SidePanelProps> = ({
     <aside className="w-80 bg-white shadow-md flex flex-col border-r border-gray-200 hidden md:flex">
       <Tabs defaultValue="connect" className="flex flex-col flex-1 min-h-0">
         {/* Tab headers — pinned at top */}
-        <TabsList className="grid grid-cols-3 rounded-none border-b border-gray-200 h-9 bg-gray-50 flex-shrink-0">
+        <TabsList className="grid grid-cols-4 rounded-none border-b border-gray-200 h-9 bg-gray-50 flex-shrink-0">
           <TabsTrigger value="connect" className="text-xs rounded-none">Connect</TabsTrigger>
           <TabsTrigger value="runs"    className="text-xs rounded-none">
             Runs
             {runs.length > 0 && (
               <span className="ml-1 text-[9px] bg-blue-500 text-white rounded-full px-1">{runs.length}</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="exps"    className="text-xs rounded-none">
+            Exps
+            {experiments.length > 0 && (
+              <span className="ml-1 text-[9px] bg-purple-500 text-white rounded-full px-1">{experiments.length}</span>
             )}
           </TabsTrigger>
           <TabsTrigger value="stats"   className="text-xs rounded-none">
@@ -245,6 +268,25 @@ const SidePanel: React.FC<SidePanelProps> = ({
             onDeleteRun={onDeleteRun}
             uploadState={uploadState}
             uploadError={uploadError}
+            experiments={experiments}
+            onAssignRunToExperiment={onAssignRunToExperiment}
+            onCreateExperimentForRun={onCreateExperimentForRun}
+          />
+        </TabsContent>
+
+        {/* ── Experiments tab ──────────────────────────────────────────────── */}
+        <TabsContent value="exps" className="flex flex-col flex-1 min-h-0 overflow-hidden mt-0">
+          <ExperimentsPanel
+            experiments={experiments}
+            runs={runs}
+            selectedExperimentId={selectedExperimentId}
+            selectedRunIds={selectedRunIds}
+            onSelectExperiment={onSelectExperiment}
+            onCreateExperiment={onCreateExperiment}
+            onDeleteExperiment={onDeleteExperiment}
+            onAssignRunToExperiment={onAssignRunToExperiment}
+            onToggleRunVisibility={onToggleRunVisibility}
+            onToggleRunSelect={onToggleRunSelect}
           />
         </TabsContent>
 

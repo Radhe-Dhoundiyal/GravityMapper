@@ -44,6 +44,19 @@ export interface ExperimentRun {
   visible: boolean;
   color: string;        // hex color for map / chart
   processingSource?: 'raw' | 'processed';  // how an uploaded run was loaded
+  parentExperimentId?: string;             // FK → Experiment.id (optional)
+}
+
+// ─── Experiment (groups multiple runs) ─────────────────────────────────────────
+export interface Experiment {
+  id: string;                              // internal UUID
+  experimentId: string;                    // human-readable code (e.g. "EXP-2025-001")
+  name: string;                            // display name
+  experimentType: ExperimentType | string; // E1–E6, CAL, or custom string
+  description: string;
+  createdAt: Date;
+  // NB: runs are NOT stored here. Membership is derived from
+  // ExperimentRun.parentExperimentId — keeps a single source of truth.
 }
 
 // ─── Legacy types (unchanged) ──────────────────────────────────────────────────

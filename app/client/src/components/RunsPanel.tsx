@@ -1,8 +1,8 @@
 import { useRef, type FC, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Eye, EyeOff, Upload, Database, Trash2, CheckSquare, Square, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
-import { ExperimentRun } from "@/lib/types";
+import { Eye, EyeOff, Upload, Database, Trash2, CheckSquare, Square, Loader2, AlertCircle, CheckCircle2, FlaskConical } from "lucide-react";
+import { ExperimentRun, Experiment } from "@/lib/types";
 
 export type UploadState = "idle" | "uploading" | "processing" | "done" | "error";
 
@@ -16,6 +16,9 @@ interface RunsPanelProps {
   onDeleteRun: (id: string) => void;
   uploadState?: UploadState;
   uploadError?: string;
+  experiments?: Experiment[];
+  onAssignRunToExperiment?: (runId: string, experimentId: string | null) => void;
+  onCreateExperimentForRun?: (runId: string) => void;
 }
 
 const modeLabel: Record<string, string> = {
@@ -32,6 +35,7 @@ const RunsPanel: FC<RunsPanelProps> = ({
   onToggleVisibility, onToggleSelect,
   onLoadMockData, onUploadCSV, onDeleteRun,
   uploadState = "idle", uploadError,
+  experiments = [], onAssignRunToExperiment, onCreateExperimentForRun,
 }) => {
   const fileRef = useRef<HTMLInputElement>(null);
   const busy = uploadState === "uploading" || uploadState === "processing";
@@ -172,6 +176,32 @@ const RunsPanel: FC<RunsPanelProps> = ({
                 <span className="font-mono truncate block">{run.runId}</span>
                 <span>{fmt(run.startTime)} · {duration(run)} · {run.points.length} pts</span>
                 {run.notes && <span className="block text-gray-400 truncate">{run.notes}</span>}
+
+                {/* Experiment assignment (only when handler provided) */}
+                {onAssignRunToExperiment && (
+                  <div className="flex items-center gap-1 mt-1">
+                    <FlaskConical className="h-2.5 w-2.5 text-purple-400 flex-shrink-0" />
+                    <select
+                      className="text-[10px] bg-gray-50 border border-gray-200 rounded px-1 py-0.5 flex-1 min-w-0 truncate"
+                      value={run.parentExperimentId ?? ''}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v === '__new__') {
+                          onCreateExperimentForRun?.(run.id);
+                        } else {
+                          onAssignRunToExperiment(run.id, v || null);
+                        }
+                      }}
+                      title="Assign to experiment"
+                    >
+                      <option value="">— Unassigned —</option>
+                      {experiments.map(exp => (
+                        <option key={exp.id} value={exp.id}>{exp.name}</option>
+                      ))}
+                      <option value="__new__">+ New experiment…</option>
+                    </select>
+                  </div>
+                )}
               </div>
             </div>
           );

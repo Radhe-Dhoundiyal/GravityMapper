@@ -22,6 +22,7 @@ import {
   ConnectionStatus,
   WebSocketMessage,
   ExperimentRun,
+  Experiment,
   MapColorMode,
 } from "@/lib/types";
 import { MOCK_RUNS } from "@/lib/mockData";
@@ -56,6 +57,8 @@ const Home: React.FC = () => {
   const [runs, setRuns]                 = useState<ExperimentRun[]>([]);
   const [activeRunId, setActiveRunId]   = useState<string | null>(null);
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
+  const [experiments, setExperiments]   = useState<Experiment[]>([]);
+  const [selectedExperimentId, setSelectedExperimentId] = useState<string | null>(null);
   const [colorMode, setColorMode]       = useState<MapColorMode>('anomaly');
   const [uploadState, setUploadState]   = useState<UploadState>('idle');
   const [uploadError, setUploadError]   = useState<string | undefined>(undefined);
@@ -283,6 +286,62 @@ const Home: React.FC = () => {
     if (activeRunId === id) setActiveRunId(null);
   }, [activeRunId]);
 
+  // ── Experiment handlers ──────────────────────────────────────────────────
+  // Architecture: ExperimentRun.parentExperimentId is the canonical FK.
+  // Experiment objects don't store a runIds array — membership is derived.
+  // This avoids any sync issues between the two sides.
+
+  const handleCreateExperiment = useCallback((data: { name: string; experimentType: string; description: string }) => {
+    const id = (crypto as any).randomUUID ? crypto.randomUUID() : `exp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const year = new Date().getFullYear();
+    setExperiments(prev => {
+      const code = `EXP-${year}-${String(prev.length + 1).padStart(3, '0')}`;
+      const exp: Experiment = {
+        id,
+        experimentId: code,
+        name: data.name,
+        experimentType: data.experimentType,
+        description: data.description,
+        createdAt: new Date(),
+      };
+      showToast(`Created experiment "${exp.name}"`, 'success');
+      return [exp, ...prev];
+    });
+    return id;
+  }, [showToast]);
+
+  const handleDeleteExperiment = useCallback((id: string) => {
+    // Detach runs from this experiment but keep them — runs are owned independently.
+    setRuns(prev => prev.map(r => r.parentExperimentId === id ? { ...r, parentExperimentId: undefined } : r));
+    setExperiments(prev => prev.filter(e => e.id !== id));
+    if (selectedExperimentId === id) setSelectedExperimentId(null);
+  }, [selectedExperimentId]);
+
+  const handleAssignRunToExperiment = useCallback((runId: string, experimentId: string | null) => {
+    // Pure update — no mutation of the run object's fields beyond the FK.
+    setRuns(prev => prev.map(r => r.id === runId
+      ? { ...r, parentExperimentId: experimentId ?? undefined }
+      : r));
+  }, []);
+
+  const handleCreateExperimentForRun = useCallback((runId: string) => {
+    const name = window.prompt('New experiment name:', '')?.trim();
+    if (!name) return;
+    const id = (crypto as any).randomUUID ? crypto.randomUUID() : `exp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const year = new Date().getFullYear();
+    setExperiments(prev => {
+      const code = `EXP-${year}-${String(prev.length + 1).padStart(3, '0')}`;
+      const exp: Experiment = {
+        id, experimentId: code, name,
+        experimentType: 'Custom', description: '',
+        createdAt: new Date(),
+      };
+      return [exp, ...prev];
+    });
+    setRuns(prev => prev.map(r => r.id === runId ? { ...r, parentExperimentId: id } : r));
+    showToast(`Created "${name}" and assigned run`, 'success');
+  }, [showToast]);
+
   const handleLoadMockData = useCallback(() => {
     setRuns(prev => {
       const existingIds = new Set(prev.map(r => r.id));
@@ -467,6 +526,13 @@ const Home: React.FC = () => {
                 onDeleteRun={handleDeleteRun}
                 uploadState={uploadState}
                 uploadError={uploadError}
+                experiments={experiments}
+                selectedExperimentId={selectedExperimentId}
+                onSelectExperiment={setSelectedExperimentId}
+                onCreateExperiment={handleCreateExperiment}
+                onDeleteExperiment={handleDeleteExperiment}
+                onAssignRunToExperiment={handleAssignRunToExperiment}
+                onCreateExperimentForRun={handleCreateExperimentForRun}
               />
             </div>
           </div>
@@ -494,6 +560,13 @@ const Home: React.FC = () => {
           onDeleteRun={handleDeleteRun}
           uploadState={uploadState}
           uploadError={uploadError}
+          experiments={experiments}
+          selectedExperimentId={selectedExperimentId}
+          onSelectExperiment={setSelectedExperimentId}
+          onCreateExperiment={handleCreateExperiment}
+          onDeleteExperiment={handleDeleteExperiment}
+          onAssignRunToExperiment={handleAssignRunToExperiment}
+          onCreateExperimentForRun={handleCreateExperimentForRun}
         />
 
         {/* Main content */}
