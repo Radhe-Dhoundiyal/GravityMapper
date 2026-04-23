@@ -73,3 +73,37 @@ export interface AnomalyFilters {
   minAnomaly: number;
   timeRange: 'all' | 'hour' | 'today' | 'week';
 }
+
+// ─── Rich live-telemetry packet (used by the WS bridge for both simulation
+//     and future ESP32 firmware). Timestamp is coerced from string|Date so
+//     a JSON round-trip through the server doesn't break validation. All
+//     IMU/baro/GPS fields are optional so older firmware revisions still
+//     pass validation. ───────────────────────────────────────────────────
+export const sensorDataPointSchema = z.object({
+  // Required — every packet must locate itself + report the headline value
+  latitude:       z.number(),
+  longitude:      z.number(),
+  anomalyValue:   z.number(),
+  timestamp:      z.union([z.string(), z.date()]).transform(v => v instanceof Date ? v : new Date(v)),
+  // IMU
+  ax:             z.number().optional(),
+  ay:             z.number().optional(),
+  az:             z.number().optional(),
+  gx:             z.number().optional(),
+  gy:             z.number().optional(),
+  gz:             z.number().optional(),
+  // Baro / env
+  pressure:       z.number().optional(),
+  temperature:    z.number().optional(),
+  altitude:       z.number().optional(),
+  // GPS quality
+  speed:          z.number().optional(),
+  hdop:           z.number().optional(),
+  satellites:     z.number().optional(),
+  fixQuality:     z.number().optional(),
+  // Derived
+  anomalySmoothed:    z.number().optional(),
+  platformStationary: z.boolean().optional(),
+});
+
+export type SensorDataPointDTO = z.infer<typeof sensorDataPointSchema>;

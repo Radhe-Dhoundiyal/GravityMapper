@@ -31,6 +31,18 @@ export function useWebSocket(
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // ── Stash the latest callbacks in refs so the socket handler always
+  //    invokes the freshest closure (avoids stale-state bugs, e.g. an
+  //    addLivePoint that captured activeRunId=null at connect time).
+  const onMessageRef = useRef(onMessage);
+  const onOpenRef    = useRef(onOpen);
+  const onErrorRef   = useRef(onError);
+  const onCloseRef   = useRef(onClose);
+  useEffect(() => { onMessageRef.current = onMessage; }, [onMessage]);
+  useEffect(() => { onOpenRef.current    = onOpen; },    [onOpen]);
+  useEffect(() => { onErrorRef.current   = onError; },   [onError]);
+  useEffect(() => { onCloseRef.current   = onClose; },   [onClose]);
+
   // Create WebSocket connection
   const connect = useCallback(() => {
     // Close any existing connection
@@ -50,14 +62,14 @@ export function useWebSocket(
     socket.onopen = (event) => {
       setIsConnected(true);
       setReconnectCount(0);
-      if (onOpen) onOpen(event);
+      onOpenRef.current?.(event);
     };
 
-    // Handle incoming messages
+    // Handle incoming messages — always dispatch to the LATEST onMessage via ref.
     socket.onmessage = (event) => {
       try {
         const parsedData: WebSocketMessage = JSON.parse(event.data);
-        if (onMessage) onMessage(parsedData);
+        onMessageRef.current?.(parsedData);
       } catch (err) {
         console.error("Error parsing WebSocket message:", err);
       }
@@ -65,13 +77,13 @@ export function useWebSocket(
 
     // Handle errors
     socket.onerror = (event) => {
-      if (onError) onError(event);
+      onErrorRef.current?.(event);
     };
 
     // Handle connection close
     socket.onclose = (event) => {
       setIsConnected(false);
-      if (onClose) onClose(event);
+      onCloseRef.current?.(event);
 
       // Attempt to reconnect if not closed cleanly and within retry limits
       if (
@@ -87,16 +99,10 @@ export function useWebSocket(
         }, reconnectInterval);
       }
     };
-  }, [
-    manual,
-    onOpen,
-    onMessage,
-    onError,
-    onClose,
-    reconnectInterval,
-    reconnectAttempts,
-    reconnectCount
-  ]);
+    // NOTE: callbacks are intentionally NOT in deps — they are accessed via
+    // refs above so the socket handler always uses the latest closure
+    // without forcing reconnects.
+  }, [manual, reconnectInterval, reconnectAttempts, reconnectCount]);
 
   // Disconnect WebSocket
   const disconnect = useCallback(() => {

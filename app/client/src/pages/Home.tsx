@@ -31,6 +31,25 @@ import { type UploadState } from "@/components/RunsPanel";
 
 let simulationInterval: NodeJS.Timeout | null = null;
 
+// ── Dev-only debug logger for the live-telemetry path ─────────────────────────
+//   Toggle in DevTools: window.__GADV_DEBUG__ = false  (or true to re-enable)
+//   Default: ON in dev, OFF in prod.
+const dbg = (...args: unknown[]) => {
+  if (typeof window !== 'undefined'
+      && ((window as any).__GADV_DEBUG__ ?? import.meta.env.DEV)) {
+    console.debug('[GADV]', ...args);
+  }
+};
+
+// Sim packet rate (Hz). 2 Hz feels live without overwhelming the WebSocket.
+const SIM_INTERVAL_MS = 500;
+
+// Persistent random-walk state for realistic-looking simulation.
+let simWalk = {
+  lat: 0, lng: 0, alt: 42, baseAnomaly: 0.4,
+  pressureBase: 1013.25, tempBase: 21,
+};
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 function calcStats(
   points: SensorDataPoint[],
@@ -117,7 +136,8 @@ const Home: React.FC = () => {
     return run;
   }, [connectionSettings]);
 
-  // WebSocket message handler
+  // WebSocket message handler — single ingestion point for BOTH simulated
+  // and (future) ESP32 live data. All packets land here regardless of source.
   function handleWebSocketMessage(data: WebSocketMessage) {
     if (data.type === 'newAnomalyPoint') {
       const raw = data.data as any;
@@ -125,6 +145,11 @@ const Home: React.FC = () => {
         ...raw,
         timestamp: typeof raw.timestamp === 'string' ? new Date(raw.timestamp) : raw.timestamp,
       };
+      dbg('packet received via WS', {
+        lat: newPoint.latitude, lng: newPoint.longitude,
+        anom: newPoint.anomalyValue,
+        keys: Object.keys(newPoint).length,
+      });
       addLivePoint(newPoint);
     } else if (data.type === 'initialData') {
       const points = (data.data as any[]).map(p => ({
@@ -153,9 +178,13 @@ const Home: React.FC = () => {
 
     setRuns(prev => {
       const idx = prev.findIndex(r => r.id === activeRunId);
-      if (idx === -1) return prev;
+      if (idx === -1) {
+        dbg('addLivePoint: no active run, point not appended');
+        return prev;
+      }
       const updated = [...prev];
       updated[idx] = { ...updated[idx], points: [...updated[idx].points, point] };
+      dbg('point appended to run', updated[idx].runId, '→', updated[idx].points.length, 'pts');
       return updated;
     });
 
@@ -231,7 +260,7 @@ const Home: React.FC = () => {
       setIsStreaming(true);
 
       if (connectionSettings.connectionType === 'simulate') {
-        simulationInterval = setInterval(generateSimulatedData, 2000);
+        simulationInterval = setInterval(generateSimulatedData, SIM_INTERVAL_MS);
       }
       showToast('Stream started', 'success');
       setBottomTab('feed');
@@ -239,35 +268,63 @@ const Home: React.FC = () => {
     }
   }, [connectionStatus, isStreaming, createLiveRun, connectionSettings.connectionType, activeRunId, showToast]);
 
-  // Simulate sensor data
+  // ── Simulate sensor data ───────────────────────────────────────────────────
+  // Generates a realistic packet via a persistent random-walk (so successive
+  // values are correlated, not white-noise), then ships it through the SAME
+  // WebSocket pipe future ESP32 firmware will use. The packet round-trips
+  // through the server, gets validated against `sensorDataPointSchema`, and
+  // arrives back via `handleWebSocketMessage` → `addLivePoint`.
+  // Reads `simWalk` (module-level) instead of `dataLogs` so the callback
+  // identity stays stable while still drifting smoothly across ticks.
   const generateSimulatedData = useCallback(() => {
-    const lastPoint = dataLogs.length > 0 ? dataLogs[dataLogs.length - 1] : null;
-    const baseLat = lastPoint ? lastPoint.latitude : settings.defaultLat;
-    const baseLng = lastPoint ? lastPoint.longitude : settings.defaultLng;
+    // Seed the walk lazily off the user's configured default location.
+    if (simWalk.lat === 0 && simWalk.lng === 0) {
+      simWalk.lat = settings.defaultLat;
+      simWalk.lng = settings.defaultLng;
+    }
 
-    const latitude    = baseLat + (Math.random() - 0.5) * 0.01;
-    const longitude   = baseLng + (Math.random() - 0.5) * 0.01;
-    const anomalyValue = Math.pow(Math.random(), 2) * 2;
+    // Drift position (~1m / tick); slowly walk environmental fields too.
+    simWalk.lat          += (Math.random() - 0.5) * 0.00005;
+    simWalk.lng          += (Math.random() - 0.5) * 0.00005;
+    simWalk.alt          += (Math.random() - 0.5) * 0.05;
+    simWalk.pressureBase += (Math.random() - 0.5) * 0.02;
+    simWalk.tempBase     += (Math.random() - 0.5) * 0.05;
+    simWalk.baseAnomaly   = Math.max(0.05, Math.min(1.5,
+      simWalk.baseAnomaly + (Math.random() - 0.5) * 0.05));
+
+    // Anomaly = baseline + intermittent spike
+    const spike = Math.random() < 0.08 ? Math.random() * 1.5 : 0;
+    const anomalyValue    = +(simWalk.baseAnomaly + spike + Math.random() * 0.05).toFixed(4);
+    const anomalySmoothed = +(simWalk.baseAnomaly + Math.random() * 0.02).toFixed(4);
+
+    // GPS velocity from drift (m/s ≈ degrees * 111000 per tick / dt)
+    const speed = +((Math.random() * 0.6 + 0.2)).toFixed(2);
 
     const dataPoint: SensorDataPoint = {
-      latitude, longitude, anomalyValue, timestamp: new Date(),
-      ax: +(Math.random() * 0.02 - 0.01).toFixed(5),
-      ay: +(Math.random() * 0.02 - 0.01).toFixed(5),
-      az: +(0.99 + Math.random() * 0.02).toFixed(5),
-      gx: +(Math.random() * 0.1 - 0.05).toFixed(4),
-      gy: +(Math.random() * 0.1 - 0.05).toFixed(4),
-      gz: +(Math.random() * 0.05).toFixed(4),
-      pressure: +(1013 + Math.random() * 0.5).toFixed(2),
-      temperature: +(20 + Math.random() * 2).toFixed(2),
-      altitude: +(42 + Math.random() * 1).toFixed(1),
-      hdop: 1.2,
-      satellites: 8,
-      fixQuality: 1,
-      platformStationary: false,
+      latitude:           +simWalk.lat.toFixed(6),
+      longitude:          +simWalk.lng.toFixed(6),
+      anomalyValue,
+      anomalySmoothed,
+      timestamp:          new Date(),
+      ax:                 +(Math.random() * 0.02 - 0.01).toFixed(5),
+      ay:                 +(Math.random() * 0.02 - 0.01).toFixed(5),
+      az:                 +(0.99 + Math.random() * 0.02).toFixed(5),
+      gx:                 +(Math.random() * 0.1 - 0.05).toFixed(4),
+      gy:                 +(Math.random() * 0.1 - 0.05).toFixed(4),
+      gz:                 +(Math.random() * 0.05).toFixed(4),
+      pressure:           +simWalk.pressureBase.toFixed(2),
+      temperature:        +simWalk.tempBase.toFixed(2),
+      altitude:           +simWalk.alt.toFixed(1),
+      speed,
+      hdop:               +(1.0 + Math.random() * 0.4).toFixed(2),
+      satellites:         8 + Math.floor(Math.random() * 4),
+      fixQuality:         1,
+      platformStationary: speed < 0.05,
     };
 
-    wsSendMessage({ type: 'newAnomalyPoint', data: dataPoint });
-  }, [dataLogs, settings.defaultLat, settings.defaultLng, wsSendMessage]);
+    const sent = wsSendMessage({ type: 'newAnomalyPoint', data: dataPoint });
+    dbg('sim packet generated', { sent, anom: anomalyValue, lat: dataPoint.latitude });
+  }, [settings.defaultLat, settings.defaultLng, wsSendMessage]);
 
   // ── Run management ─────────────────────────────────────────────────────────
   const handleToggleRunVisibility = useCallback((id: string) => {
@@ -373,7 +430,11 @@ const Home: React.FC = () => {
 
     if (connectionSettings.connectionType === 'simulate') {
       if (simulationInterval) clearInterval(simulationInterval);
-      simulationInterval = setInterval(generateSimulatedData, 2000);
+      // Reset walk so the new run starts fresh from the configured origin.
+      simWalk = { lat: 0, lng: 0, alt: 42, baseAnomaly: 0.4,
+                  pressureBase: 1013.25, tempBase: 21 };
+      simulationInterval = setInterval(generateSimulatedData, SIM_INTERVAL_MS);
+      dbg('sim interval started', SIM_INTERVAL_MS, 'ms');
     }
 
     showToast(`Recording started: ${runId}`, 'success');

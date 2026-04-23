@@ -5,7 +5,7 @@ import multer from "multer";
 import * as fs from "fs";
 import * as path from "path";
 import { storage } from "./storage";
-import { insertAnomalyPointSchema } from "@shared/schema";
+import { insertAnomalyPointSchema, sensorDataPointSchema } from "@shared/schema";
 import { processUploadedFile, NoPythonError } from "./csvProcessor";
 import { z } from "zod";
 
@@ -54,14 +54,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         switch (data.type) {
           case "newAnomalyPoint": {
             try {
-              const validated = insertAnomalyPointSchema.parse(data.data);
-              const newPoint  = await storage.createAnomalyPoint(validated);
-              broadcastToAll({ type: "newAnomalyPoint", data: newPoint });
+              // ── Validate against the RICH packet schema (sim + ESP32 use this same shape).
+              //    Timestamp is coerced to Date inside the schema so JSON-string wire
+              //    payloads round-trip cleanly.
+              const rich = sensorDataPointSchema.parse(data.data);
+
+              // ── Best-effort legacy persistence: project to the 4-field anomaly_points
+              //    table so /api/anomaly-points + initialData replay keep working.
+              //    Failure here must NOT block live broadcast (a transient DB error
+              //    must never starve the live UI).
+              storage.createAnomalyPoint({
+                latitude:     String(rich.latitude),
+                longitude:    String(rich.longitude),
+                anomalyValue: String(rich.anomalyValue),
+                timestamp:    rich.timestamp,
+              }).catch((e) => console.warn("[ws] legacy persist failed:", e?.message ?? e));
+
+              // ── Broadcast the FULL rich point to every client unchanged.
+              //    This is the same path future ESP32 packets will follow.
+              broadcastToAll({ type: "newAnomalyPoint", data: rich });
             } catch (err) {
               if (err instanceof z.ZodError) {
+                console.warn("[ws] rejected packet:", err.errors);
                 ws.send(JSON.stringify({ type: "error", message: "Invalid data", details: err.errors }));
               } else {
-                ws.send(JSON.stringify({ type: "error", message: "Failed to store point" }));
+                ws.send(JSON.stringify({ type: "error", message: "Failed to broadcast point" }));
               }
             }
             break;

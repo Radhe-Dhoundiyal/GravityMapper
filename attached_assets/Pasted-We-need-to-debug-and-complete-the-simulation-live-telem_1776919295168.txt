@@ -1,0 +1,72 @@
+We need to debug and complete the simulation/live telemetry path in the GADV Instrument Console before attempting ESP32 integration.
+
+Current problem:
+When I select Simulation → Connect → Telemetry → Start Run, the UI shows SIMULATION and STREAM: LIVE, but telemetry values stay blank/zero, point count does not increase, and the map shows 0 pts.
+
+We need to make simulation produce real live packets and ensure they flow through the exact same path that future ESP32 live data will use.
+
+Requirements:
+
+1. Trace the full simulation data path
+Identify where simulated packets are supposed to be generated and where they are supposed to enter the app state.
+
+2. Ensure simulation generates realistic packets at a fixed rate
+Each simulated packet should include at least:
+- timestamp
+- ax
+- ay
+- az
+- gx
+- gy
+- gz
+- pressure
+- temperature
+- altitude
+- latitude
+- longitude
+- speed
+- hdop
+- satellites
+- anomalyValue
+- anomalySmoothed
+- platformStationary
+
+Values can be synthetic but should change over time in a realistic way.
+
+3. Use the same ingestion path as live rover data
+Do not create a separate special-case UI path.
+Simulation packets should flow through the same handler used by future WebSocket ESP32 packets, so that simulation is a true live-data test.
+
+4. Verify state updates correctly
+Simulation packets must update:
+- latest telemetry point
+- active run point array while recording
+- telemetry cards
+- packet age
+- estimated sample rate
+- map points
+
+5. Fix point counting and map visibility
+If a run is active and simulation is streaming, the run’s point count should increase and points should appear on the map.
+
+6. Add temporary debug logging
+Add lightweight console logs or dev-only debug statements showing:
+- simulation packet generated
+- packet received by handler
+- point appended to run
+These can be guarded behind a dev flag or easy to remove later.
+
+7. Keep all current features working
+Do not break:
+- CSV upload
+- Python pipeline
+- experiments
+- stats / plot / compare
+- telemetry panel
+- recording controls
+
+8. Return:
+- root cause of the bug
+- files changed
+- summary of the corrected simulation flow
+- any remaining blockers before ESP32 live integration
