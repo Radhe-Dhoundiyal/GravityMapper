@@ -1,12 +1,24 @@
-import { useMemo, type FC, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FC, type ReactNode } from "react";
 import {
   Activity, Wifi, WifiOff, Radio, Satellite, Compass, Gauge, Mountain,
   Thermometer, Navigation2, MapPin, Circle, Square, FlaskConical,
-  AlertTriangle, CheckCircle2,
+  AlertTriangle, CheckCircle2, Play, StopCircle, Settings2,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  SensorDataPoint, ExperimentRun, Experiment, ConnectionStatus, ConnectionSettings,
+  SensorDataPoint, ExperimentRun, Experiment, ConnectionStatus, ConnectionSettings, ExperimentType,
 } from "@/lib/types";
+
+export interface RecordingMeta {
+  runId?: string;
+  experimentType: ExperimentType | string;
+  parentExperimentId?: string | null;
+  notes?: string;
+}
 
 interface TelemetryPanelProps {
   latestPoint:        SensorDataPoint | null;
@@ -16,7 +28,28 @@ interface TelemetryPanelProps {
   connectionSettings: ConnectionSettings;
   isStreaming:        boolean;
   recentPoints:       SensorDataPoint[];   // last N points for rate estimation
+  experiments:        Experiment[];
+  onStartRecording:   (meta: RecordingMeta) => void;
+  onStopRecording:    () => void;
 }
+
+const EXP_TYPES: (ExperimentType | 'Custom')[] = ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'CAL', 'Custom'];
+
+const fmtElapsed = (sec: number): string => {
+  if (!isFinite(sec) || sec < 0) return '0:00';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${m}:${String(s).padStart(2, '0')}`;
+};
+
+const autoRunId = (): string => {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `live_${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+};
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 const fmt = (n: number | undefined | null, digits = 2, unit = ''): string => {
@@ -88,10 +121,54 @@ const TCard: FC<{ label: string; value: ReactNode; unit?: string; icon?: ReactNo
 const TelemetryPanel: FC<TelemetryPanelProps> = ({
   latestPoint, activeRun, assignedExperiment,
   connectionStatus, connectionSettings, isStreaming, recentPoints,
+  experiments, onStartRecording, onStopRecording,
 }) => {
   const p = latestPoint;
   const sampleRate = useMemo(() => estimateSampleRate(recentPoints), [recentPoints]);
   const lastSeen   = p?.timestamp ? (p.timestamp instanceof Date ? p.timestamp : new Date(p.timestamp)) : null;
+
+  // ── Recording form state ──────────────────────────────────────────────────
+  const [showForm,    setShowForm]    = useState(false);
+  const [formRunId,   setFormRunId]   = useState('');
+  const [formExpType, setFormExpType] = useState<string>('CAL');
+  const [formCustom,  setFormCustom]  = useState('');
+  const [formExpId,   setFormExpId]   = useState<string>('');
+  const [formNotes,   setFormNotes]   = useState('');
+
+  // ── 1Hz tick for elapsed timer (only while recording) ─────────────────────
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!isStreaming || !activeRun) return;
+    const id = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [isStreaming, activeRun]);
+
+  const elapsedSec = activeRun
+    ? (Date.now() - (activeRun.startTime instanceof Date ? activeRun.startTime.getTime() : new Date(activeRun.startTime).getTime())) / 1000
+    : 0;
+  void tick; // dependency to force re-render
+
+  const submitStart = () => {
+    const type = formExpType === 'Custom' ? (formCustom.trim() || 'Custom') : formExpType;
+    onStartRecording({
+      runId: formRunId.trim() || undefined,
+      experimentType: type,
+      parentExperimentId: formExpId || null,
+      notes: formNotes.trim() || undefined,
+    });
+    setShowForm(false);
+    // Reset for next session
+    setFormRunId(''); setFormCustom(''); setFormNotes('');
+  };
+
+  const quickStart = () => {
+    onStartRecording({
+      runId: autoRunId(),
+      experimentType: 'CAL',
+      parentExperimentId: null,
+      notes: 'Quick recording',
+    });
+  };
 
   // ── Sensor health (inferred from latest packet) ─────────────────────────────
   const imuOK   = !!p && (p.ax !== undefined || p.ay !== undefined || p.az !== undefined ||
@@ -134,10 +211,16 @@ const TelemetryPanel: FC<TelemetryPanelProps> = ({
           {isStreaming ? 'STREAMING' : 'IDLE'}
         </Pill>
 
-        {/* Recording placeholder (always inactive for now) */}
-        <Pill tone="muted" icon={<Circle className="h-2 w-2" />}>
-          REC&nbsp;OFF
-        </Pill>
+        {/* Recording state — now real */}
+        {isStreaming && activeRun ? (
+          <Pill tone="bad" icon={<Circle className="h-2 w-2 fill-current animate-pulse" />}>
+            REC&nbsp;{fmtElapsed(elapsedSec)}
+          </Pill>
+        ) : (
+          <Pill tone="muted" icon={<Circle className="h-2 w-2" />}>
+            REC&nbsp;OFF
+          </Pill>
+        )}
 
         {/* Source mode */}
         {sourceMode && (
@@ -171,6 +254,112 @@ const TelemetryPanel: FC<TelemetryPanelProps> = ({
         <Pill tone={baroOK ? 'good' : 'bad'} icon={<Gauge className="h-2.5 w-2.5" />}>
           BARO
         </Pill>
+      </div>
+
+      {/* ── Recording controls ───────────────────────────────────────────────── */}
+      <div className="px-2 py-1.5 bg-slate-50 border-b border-gray-200">
+        {isStreaming && activeRun ? (
+          // ── Recording: stop button + duration ───────────────────────────────
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              className="h-7 text-xs bg-red-600 hover:bg-red-700 text-white"
+              onClick={onStopRecording}
+            >
+              <StopCircle className="h-3.5 w-3.5 mr-1" /> Stop Run
+            </Button>
+            <div className="text-[11px] font-mono text-red-700 flex items-center gap-1">
+              <Circle className="h-2 w-2 fill-current animate-pulse" />
+              <span>RECORDING · {fmtElapsed(elapsedSec)}</span>
+              <span className="text-gray-400">· {activeRun.points.length} pts</span>
+            </div>
+          </div>
+        ) : connectionStatus === 'disconnected' ? (
+          // ── Disconnected: locked ────────────────────────────────────────────
+          <div className="text-[11px] text-gray-400 italic px-1">
+            Connect from the side panel to enable recording.
+          </div>
+        ) : !showForm ? (
+          // ── Ready to record: quick + configure buttons ──────────────────────
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+              onClick={quickStart}
+            >
+              <Play className="h-3.5 w-3.5 mr-1" /> Start Run
+            </Button>
+            <Button
+              size="sm" variant="outline"
+              className="h-7 text-xs"
+              onClick={() => { setFormRunId(autoRunId()); setShowForm(true); }}
+            >
+              <Settings2 className="h-3.5 w-3.5 mr-1" /> Configure…
+            </Button>
+            <span className="text-[10px] text-gray-500 ml-auto">Captures incoming telemetry into a new run</span>
+          </div>
+        ) : (
+          // ── Configure form ──────────────────────────────────────────────────
+          <div className="space-y-1.5">
+            <div className="grid grid-cols-2 gap-1.5">
+              <div>
+                <Label className="text-[9px] text-gray-500 uppercase tracking-wide">Run ID</Label>
+                <Input
+                  value={formRunId} onChange={e => setFormRunId(e.target.value)}
+                  className="text-[11px] h-6 font-mono mt-0.5"
+                  placeholder="auto"
+                />
+              </div>
+              <div>
+                <Label className="text-[9px] text-gray-500 uppercase tracking-wide">Experiment type</Label>
+                <Select value={formExpType} onValueChange={setFormExpType}>
+                  <SelectTrigger className="text-[11px] h-6 mt-0.5"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {EXP_TYPES.map(t => <SelectItem key={t} value={t} className="text-[11px]">{t}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              {formExpType === 'Custom' && (
+                <div className="col-span-2">
+                  <Label className="text-[9px] text-gray-500 uppercase tracking-wide">Custom type</Label>
+                  <Input
+                    value={formCustom} onChange={e => setFormCustom(e.target.value)}
+                    className="text-[11px] h-6 mt-0.5"
+                    placeholder="e.g. CAL-LAB"
+                  />
+                </div>
+              )}
+              <div className="col-span-2">
+                <Label className="text-[9px] text-gray-500 uppercase tracking-wide">Assign to experiment</Label>
+                <Select value={formExpId || 'none'} onValueChange={v => setFormExpId(v === 'none' ? '' : v)}>
+                  <SelectTrigger className="text-[11px] h-6 mt-0.5"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none" className="text-[11px]">— Unassigned —</SelectItem>
+                    {experiments.map(e => (
+                      <SelectItem key={e.id} value={e.id} className="text-[11px]">{e.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-2">
+                <Label className="text-[9px] text-gray-500 uppercase tracking-wide">Notes</Label>
+                <Textarea
+                  value={formNotes} onChange={e => setFormNotes(e.target.value)}
+                  className="text-[11px] min-h-[36px] mt-0.5"
+                  placeholder="Optional…" rows={2}
+                />
+              </div>
+            </div>
+            <div className="flex gap-1.5">
+              <Button size="sm" className="h-7 text-xs flex-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={submitStart}>
+                <Play className="h-3.5 w-3.5 mr-1" /> Start Recording
+              </Button>
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setShowForm(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Operator summary strip ───────────────────────────────────────────── */}

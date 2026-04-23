@@ -324,6 +324,79 @@ const Home: React.FC = () => {
       : r));
   }, []);
 
+  // ── Recording session handlers ────────────────────────────────────────────
+  // Recording == "capture incoming telemetry into a persisted run".
+  // The underlying live/sim packet pipeline (addLivePoint / WebSocket / sim
+  // interval) is reused unchanged — recording just owns the active run target.
+
+  const handleStartRecording = useCallback((meta: {
+    runId?: string;
+    experimentType: string;
+    parentExperimentId?: string | null;
+    notes?: string;
+  }) => {
+    if (connectionStatus === 'disconnected') {
+      showToast('Connect first before recording', 'error');
+      return;
+    }
+    if (isStreaming) {
+      showToast('Already recording — stop the current run first', 'warning');
+      return;
+    }
+
+    // Validate experimentType for the typed enum field (fallback to CAL if custom)
+    const knownTypes: Array<ExperimentRun['experimentId']> = ['E1','E2','E3','E4','E5','E6','CAL'];
+    const expIdField: ExperimentRun['experimentId'] =
+      knownTypes.includes(meta.experimentType as any)
+        ? (meta.experimentType as ExperimentRun['experimentId'])
+        : 'CAL';
+
+    const id    = `live-${Date.now()}`;
+    const runId = meta.runId?.trim() || `live_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}`;
+    const run: ExperimentRun = {
+      id,
+      runId,
+      experimentId: expIdField,
+      mode: connectionSettings.connectionType === 'simulate' ? 'simulated' : 'live',
+      startTime: new Date(),
+      location: connectionSettings.deviceId || 'unknown',
+      notes: meta.notes ?? `${meta.experimentType} session`,
+      points: [],
+      visible: true,
+      color: nextRunColor(),
+      parentExperimentId: meta.parentExperimentId ?? undefined,
+    };
+
+    setRuns(prev => [run, ...prev]);
+    setActiveRunId(run.id);
+    setIsStreaming(true);
+
+    if (connectionSettings.connectionType === 'simulate') {
+      if (simulationInterval) clearInterval(simulationInterval);
+      simulationInterval = setInterval(generateSimulatedData, 2000);
+    }
+
+    showToast(`Recording started: ${runId}`, 'success');
+    setBottomTab('feed');
+    setBottomExpanded(true);
+  }, [connectionStatus, isStreaming, connectionSettings, generateSimulatedData, showToast]);
+
+  const handleStopRecording = useCallback(() => {
+    if (!isStreaming) return;
+    setIsStreaming(false);
+    if (simulationInterval) { clearInterval(simulationInterval); simulationInterval = null; }
+    setRuns(prev => {
+      const idx = prev.findIndex(r => r.id === activeRunId);
+      if (idx === -1) return prev;
+      const updated = [...prev];
+      updated[idx] = { ...updated[idx], endTime: new Date() };
+      return updated;
+    });
+    const stoppedId = activeRunId;
+    setActiveRunId(null);
+    showToast(stoppedId ? `Recording stopped` : 'Stream stopped', 'success');
+  }, [isStreaming, activeRunId, showToast]);
+
   const handleCreateExperimentForRun = useCallback((runId: string) => {
     const name = window.prompt('New experiment name:', '')?.trim();
     if (!name) return;
@@ -493,10 +566,20 @@ const Home: React.FC = () => {
   // Legacy dataPoints for MapToolbar
   const livePoints = activeRunId ? (runs.find(r => r.id === activeRunId)?.points ?? []) : [];
 
+  // ── Derived: active run + its assigned experiment (shared by header + telemetry) ──
+  const activeRun = activeRunId ? (runs.find(r => r.id === activeRunId) ?? null) : null;
+  const assignedExperiment = activeRun?.parentExperimentId
+    ? (experiments.find(e => e.id === activeRun.parentExperimentId) ?? null)
+    : null;
+
   return (
     <div className="h-screen flex flex-col bg-gray-50 text-gray-900">
       <AppHeader
         connectionStatus={connectionStatus}
+        connectionSettings={connectionSettings}
+        isStreaming={isStreaming}
+        activeRun={activeRun}
+        assignedExperiment={assignedExperiment}
         onOpenSettings={() => setIsSettingsModalOpen(true)}
       />
 
@@ -644,21 +727,16 @@ const Home: React.FC = () => {
               <div className="flex-1 min-h-0 overflow-hidden">
                 {bottomTab === 'feed' && (
                   <TelemetryPanel
-                    latestPoint={lastDataPoint ?? (activeRunId ? (runs.find(r => r.id === activeRunId)?.points.slice(-1)[0] ?? null) : null)}
-                    activeRun={activeRunId ? (runs.find(r => r.id === activeRunId) ?? null) : null}
-                    assignedExperiment={(() => {
-                      const r = activeRunId ? runs.find(x => x.id === activeRunId) : null;
-                      const expId = r?.parentExperimentId;
-                      return expId ? (experiments.find(e => e.id === expId) ?? null) : null;
-                    })()}
+                    latestPoint={lastDataPoint ?? (activeRun?.points.slice(-1)[0] ?? null)}
+                    activeRun={activeRun}
+                    assignedExperiment={assignedExperiment}
                     connectionStatus={connectionStatus}
                     connectionSettings={connectionSettings}
                     isStreaming={isStreaming}
-                    recentPoints={
-                      activeRunId
-                        ? (runs.find(r => r.id === activeRunId)?.points.slice(-15) ?? [])
-                        : dataLogs.slice(-15)
-                    }
+                    recentPoints={activeRun ? activeRun.points.slice(-15) : dataLogs.slice(-15)}
+                    experiments={experiments}
+                    onStartRecording={handleStartRecording}
+                    onStopRecording={handleStopRecording}
                   />
                 )}
                 {bottomTab === 'plot' && (
