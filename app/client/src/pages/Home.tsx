@@ -3,7 +3,7 @@ import AppHeader from "@/components/AppHeader";
 import SidePanel from "@/components/SidePanel";
 import MapView from "@/components/MapView";
 import MapToolbar from "@/components/MapToolbar";
-import DataStreamPanel from "@/components/DataStreamPanel";
+import TelemetryPanel from "@/components/TelemetryPanel";
 import SettingsModal from "@/components/SettingsModal";
 import AnomalyPlot from "@/components/AnomalyPlot";
 import RunCompare from "@/components/RunCompare";
@@ -611,8 +611,8 @@ const Home: React.FC = () => {
             colorMode={colorMode}
           />
 
-          {/* Bottom panel — Feed / Plot / Compare */}
-          <div className={`bg-white border-t border-gray-200 flex flex-col transition-all duration-200 ${bottomExpanded ? 'h-48' : 'h-9'}`}>
+          {/* Bottom panel — Telemetry / Plot / Compare */}
+          <div className={`bg-white border-t border-gray-200 flex flex-col transition-all duration-200 ${bottomExpanded ? 'h-72' : 'h-9'}`}>
             {/* Tab bar */}
             <div className="flex items-center border-b border-gray-100 h-9 flex-shrink-0 px-1 gap-0.5">
               {(['feed', 'plot', 'compare'] as const).map(tab => (
@@ -625,7 +625,7 @@ const Home: React.FC = () => {
                       : 'border-transparent text-gray-500 hover:text-gray-700'
                   }`}
                 >
-                  {tab === 'feed'    && <><Radio className="h-3 w-3" />Live Feed</>}
+                  {tab === 'feed'    && <><Radio className="h-3 w-3" />Telemetry</>}
                   {tab === 'plot'    && <><BarChart2 className="h-3 w-3" />Plot</>}
                   {tab === 'compare' && <><GitCompare className="h-3 w-3" />Compare</>}
                 </button>
@@ -643,11 +643,22 @@ const Home: React.FC = () => {
             {bottomExpanded && (
               <div className="flex-1 min-h-0 overflow-hidden">
                 {bottomTab === 'feed' && (
-                  <DataStreamPanel
-                    dataLogs={dataLogs}
-                    isExpanded={true}
-                    onToggleExpand={() => setBottomExpanded(false)}
-                    thresholds={settings.thresholds}
+                  <TelemetryPanel
+                    latestPoint={lastDataPoint ?? (activeRunId ? (runs.find(r => r.id === activeRunId)?.points.slice(-1)[0] ?? null) : null)}
+                    activeRun={activeRunId ? (runs.find(r => r.id === activeRunId) ?? null) : null}
+                    assignedExperiment={(() => {
+                      const r = activeRunId ? runs.find(x => x.id === activeRunId) : null;
+                      const expId = r?.parentExperimentId;
+                      return expId ? (experiments.find(e => e.id === expId) ?? null) : null;
+                    })()}
+                    connectionStatus={connectionStatus}
+                    connectionSettings={connectionSettings}
+                    isStreaming={isStreaming}
+                    recentPoints={
+                      activeRunId
+                        ? (runs.find(r => r.id === activeRunId)?.points.slice(-15) ?? [])
+                        : dataLogs.slice(-15)
+                    }
                   />
                 )}
                 {bottomTab === 'plot' && (
