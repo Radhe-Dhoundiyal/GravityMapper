@@ -4,10 +4,9 @@ services:
     env: node
     plan: free
     # ── Build ──────────────────────────────────────────────────────────────
-    # 1. Install ALL deps (devDependencies included) — vite, esbuild, and the
-    #    @replit/vite-plugin-* packages must be present even at runtime
-    #    because app/server/vite.ts statically imports vite.config.ts. We
-    #    override the npm production-mode default with --include=dev.
+    # 1. Install ALL deps (devDependencies included) — vite and esbuild are
+    #    required for the build. We override the npm production-mode default
+    #    with --include=dev.
     # 2. Build the React client → dist/public  (path set in vite.config.ts).
     # 3. Bundle the Express server (single entry point: app/server/index.ts)
     #    → dist/index.js.  esbuild walks the import graph; --packages=external

@@ -47,8 +47,6 @@ The dashboard receives real-time data from the ESP32 sensor node via WebSocket, 
 NODE_ENV=development tsx app/server/index.ts
 ```
 
-Or press **Run** in Replit — the workflow is pre-configured.
-
 ### Deploying to Render
 
 ```bash

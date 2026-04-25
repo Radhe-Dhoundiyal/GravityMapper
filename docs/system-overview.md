@@ -29,8 +29,6 @@ GADV is an open-source, low-cost mobile sensing platform for mapping local gravi
 NODE_ENV=development tsx app/server/index.ts
 ```
 
-Or via the Replit workflow: press **Run**.
-
 ### Connecting an ESP32
 
 1. Flash the firmware from `hardware/`
