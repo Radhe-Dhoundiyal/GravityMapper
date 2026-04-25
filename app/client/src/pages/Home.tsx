@@ -152,9 +152,21 @@ const Home: React.FC = () => {
       });
       addLivePoint(newPoint);
     } else if (data.type === 'initialData') {
-      const points = (data.data as any[]).map(p => ({
-        ...p, timestamp: new Date(p.timestamp),
-      })) as SensorDataPoint[];
+      // ── Defensive: server should always send an array, but a future schema
+      //    change or transport hiccup must NOT take the whole UI down.
+      const raw = Array.isArray((data as any).data) ? ((data as any).data as any[]) : [];
+
+      // ── Coerce legacy numeric-as-string columns (the persisted
+      //    anomaly_points table stores lat/lng/anomalyValue as Postgres
+      //    NUMERIC, which serialises to JSON strings) back to numbers so
+      //    downstream `.toFixed()` / arithmetic doesn't throw.
+      const points: SensorDataPoint[] = raw.map(p => ({
+        ...p,
+        latitude:     typeof p.latitude     === 'string' ? Number(p.latitude)     : p.latitude,
+        longitude:    typeof p.longitude    === 'string' ? Number(p.longitude)    : p.longitude,
+        anomalyValue: typeof p.anomalyValue === 'string' ? Number(p.anomalyValue) : p.anomalyValue,
+        timestamp:    p.timestamp instanceof Date ? p.timestamp : new Date(p.timestamp),
+      }));
 
       if (points.length > 0) {
         setDataLogs(points.slice(-100));
