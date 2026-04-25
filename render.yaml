@@ -3,14 +3,35 @@ services:
     name: gadv-web-dashboard
     env: node
     plan: free
+    # ── Build ──────────────────────────────────────────────────────────────
+    # 1. Install ALL deps (devDependencies included) — vite, esbuild, and the
+    #    @replit/vite-plugin-* packages must be present even at runtime
+    #    because app/server/vite.ts statically imports vite.config.ts. We
+    #    override the npm production-mode default with --include=dev.
+    # 2. Build the React client → dist/public  (path set in vite.config.ts).
+    # 3. Bundle the Express server (single entry point: app/server/index.ts)
+    #    → dist/index.js.  esbuild walks the import graph; --packages=external
+    #    keeps node_modules out of the bundle so they're loaded at runtime.
     buildCommand: |
-      mkdir -p dist dist/public
-      npm ci
+      npm ci --include=dev
       npx vite build
-      npx esbuild app/server/index.ts app/server/routes.ts app/server/storage.ts app/server/vite.ts --platform=node --packages=external --bundle --format=esm --outdir=dist
-    startCommand: node render.js
+      npx esbuild app/server/index.ts \
+        --platform=node \
+        --packages=external \
+        --bundle \
+        --format=esm \
+        --outdir=dist
+    # ── Start ──────────────────────────────────────────────────────────────
+    # Single Node process — serves /api/*, /ws (WebSocket), and the built
+    # frontend from dist/public. Binds to $PORT (Render injects this).
+    startCommand: node dist/index.js
+    # ── Health ─────────────────────────────────────────────────────────────
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
+      # SESSION_SECRET is reserved for any future cookie/session support
+      # added on top of the current MemStorage layer. Generated once at
+      # service create-time and persisted across deploys.
       - key: SESSION_SECRET
         generateValue: true

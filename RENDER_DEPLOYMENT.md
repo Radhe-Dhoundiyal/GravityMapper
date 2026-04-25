@@ -1,179 +1,167 @@
-# Deploying to Render
+# Deploying GADV to Render
 
-This guide will help you deploy your Gravitational Anomaly Mapper application to Render.
+Single-service deployment: one Render Web Service runs the Express backend, the WebSocket bridge, and serves the built React frontend — all from one Node process.
 
-## Prerequisites
+---
 
-1. Create a [Render account](https://render.com/)
-2. Have your code pushed to a Git repository (GitHub, GitLab, etc.)
+## TL;DR
 
-## Fixing the Build Issue
+| Setting | Value |
+|---|---|
+| Service type | **Web Service** (Node) |
+| Build command | `npm ci --include=dev && npx vite build && npx esbuild app/server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist` |
+| Start command | `node dist/index.js` |
+| Health check path | `/api/health` |
+| Auto-deploy | Yes (on push to main) |
+| Plan | Free works for testing |
 
-To fix the `Publish directory dist/public does not exist!` error, follow these steps:
+These values are also encoded in `render.yaml` at the repo root, so you can either point Render at the YAML (Blueprint deploy) or paste the commands manually in the dashboard — both produce the same service.
 
-## Step 1: Modify package.json
+---
 
-Before deploying, update your package.json with the following scripts:
+## What gets deployed
 
-```json
-"scripts": {
-  "dev": "NODE_ENV=development tsx server/index.ts",
-  "build": "npm run build:prepare && npm run build:client && npm run build:server",
-  "build:prepare": "mkdir -p dist dist/public",
-  "build:client": "vite build",
-  "build:server": "esbuild server/index.ts server/routes.ts server/storage.ts server/vite.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
-  "start": "NODE_ENV=production node dist/index.js",
-  "check": "tsc",
-  "db:push": "drizzle-kit push"
-}
+```
+┌─ Render Web Service (single dyno) ──────────────────────────────────────┐
+│                                                                         │
+│   node dist/index.js   (binds to $PORT, host 0.0.0.0)                   │
+│       │                                                                 │
+│       ├── HTTP   /                       → dist/public/index.html (SPA) │
+│       ├── HTTP   /api/health             → liveness probe               │
+│       ├── HTTP   /api/telemetry  (POST)  → ESP32/Wokwi fallback         │
+│       ├── HTTP   /api/anomaly-points     → legacy REST                  │
+│       ├── HTTP   /api/upload-csv  (POST) → CSV processor (Python)       │
+│       └── WS     /ws                     → live telemetry bridge        │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-The `build:prepare` script creates the necessary directories before building.
+The build produces:
 
-## Step 2: Create a Render-specific Entry Point
+- `dist/public/` — Vite-bundled React frontend (HTML/JS/CSS/assets)
+- `dist/index.js` — esbuild-bundled Express server (single file, `--packages=external` keeps `node_modules` outside the bundle)
 
-Create a file named `render.js` in your project root:
+---
 
-```javascript
-// This file is necessary for Render deployment
-import { createServer } from 'http';
-import path from 'path';
-import express from 'express';
-import session from 'express-session';
-import MemoryStore from 'memorystore';
-import { WebSocketServer } from 'ws';
-import { registerRoutes } from './server/routes.js';
-import { fileURLToPath } from 'url';
+## One-time Render setup
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+### Option A — Blueprint deploy (recommended)
 
-async function startServer() {
-  const app = express();
-  const MemoryStoreSession = MemoryStore(session);
+1. Push the repo to GitHub.
+2. Render dashboard → **New** → **Blueprint** → connect the repo.
+3. Render reads `render.yaml`, creates the `gadv-web-dashboard` service automatically with the correct build/start/health settings.
+4. Click **Apply** and wait for the first deploy (~3–5 minutes on free tier).
 
-  // Session configuration
-  app.use(
-    session({
-      secret: process.env.SESSION_SECRET || 'gravitational-anomaly-secret',
-      resave: false,
-      saveUninitialized: false,
-      store: new MemoryStoreSession({
-        checkPeriod: 86400000 // 24 hours
-      })
-    })
-  );
+### Option B — Manual Web Service
 
-  app.use(express.json());
-
-  // Serve static files from dist/public
-  app.use(express.static(path.join(__dirname, 'dist/public')));
-
-  // Set up HTTP server and register routes
-  const httpServer = createServer(app);
-  await registerRoutes(app);
-
-  // WebSocket server
-  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
-
-  wss.on('connection', (ws) => {
-    console.log('Client connected to WebSocket');
-    
-    ws.on('message', (message) => {
-      try {
-        const parsedMessage = JSON.parse(message.toString());
-        console.log('Received message:', parsedMessage.type);
-        
-        // Broadcast to all clients
-        wss.clients.forEach((client) => {
-          if (client.readyState === 1) { // WebSocket.OPEN
-            client.send(JSON.stringify(parsedMessage));
-          }
-        });
-      } catch (error) {
-        console.error('Error processing message:', error);
-      }
-    });
-    
-    ws.on('close', () => {
-      console.log('Client disconnected from WebSocket');
-    });
-  });
-
-  // For SPA routing - send all non-api routes to index.html
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'dist/public/index.html'));
-  });
-
-  // Error handler
-  app.use((err, req, res, next) => {
-    console.error('Server error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  });
-
-  // Start the server
-  const PORT = process.env.PORT || 5000;
-  httpServer.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
-}
-
-startServer().catch(err => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
-});
-```
-
-## Step 3: Set Up Your Render Service
-
-1. Log in to your Render dashboard
-2. Click "New" and select "Web Service"
-3. Connect your repository
-4. Configure the service with these settings:
-   - **Name**: gravitational-anomaly-mapper (or your preferred name)
+1. Render dashboard → **New** → **Web Service** → connect the repo.
+2. Fill in:
+   - **Name**: `gadv-web-dashboard` (or anything — drives the URL)
    - **Runtime**: Node
-   - **Build Command**: `npm ci && npm run build`
-   - **Start Command**: `node render.js`
-   - **Environment Variables**:
-     - `NODE_ENV`: production
-     - `SESSION_SECRET`: (generate a random string)
+   - **Region**: any (Oregon / Frankfurt / Singapore)
+   - **Build Command** (paste exactly):
+     ```
+     npm ci --include=dev && npx vite build && npx esbuild app/server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist
+     ```
+   - **Start Command**:
+     ```
+     node dist/index.js
+     ```
+   - **Health Check Path**: `/api/health`
+3. Add env vars:
+   - `NODE_ENV` = `production`
+   - `SESSION_SECRET` = (Generate)
+4. Click **Create Web Service**.
 
-5. Click "Create Web Service"
+---
 
-## Step 4: Troubleshooting
+## Environment variables
 
-If you encounter build issues:
+| Var | Required | Purpose |
+|---|---|---|
+| `NODE_ENV` | yes | Must be `production` so the server uses `serveStatic` (not Vite middleware) |
+| `PORT` | injected | Render sets this automatically; do not override |
+| `SESSION_SECRET` | optional | Reserved for future cookie/session support |
 
-1. Check the build logs in Render dashboard
-2. Ensure all necessary files are pushed to your repository
-3. Verify that the dist/public directory is being created during the build process
-4. If using environment variables, make sure they're properly set in Render
+No database URL is required — runs/experiments live in browser state, and the legacy 4-field anomaly history uses in-memory storage (`MemStorage`). If you later swap to Postgres, add `DATABASE_URL` here.
 
-## Additional Notes
+---
 
-- Render automatically assigns a PORT environment variable
-- The free tier may have performance limitations for real-time applications
-- For production deployments, consider using a proper database instead of in-memory storage
+## Final URLs
 
-## Local Testing
+After Render finishes the first deploy, your service is reachable at:
 
-To test your build locally before deploying:
+```
+https://<service-name>.onrender.com/
+```
+
+For the default `gadv-web-dashboard` name that's `https://gadv-web-dashboard.onrender.com`. Replace below with your actual subdomain.
+
+| Resource | URL |
+|---|---|
+| Dashboard UI | `https://<service-name>.onrender.com/` |
+| Health probe | `https://<service-name>.onrender.com/api/health` |
+| Telemetry POST (ESP32/Wokwi fallback) | `https://<service-name>.onrender.com/api/telemetry` |
+| Live WebSocket | `wss://<service-name>.onrender.com/ws` |
+| Legacy REST | `https://<service-name>.onrender.com/api/anomaly-points` |
+
+### Quick smoke tests
 
 ```bash
-# Create necessary directories
-mkdir -p dist dist/public
+# Liveness
+curl https://<service-name>.onrender.com/api/health
+# → {"ok":true,"service":"gadv","time":"..."}
 
-# Build the client
-npm run build:client
-
-# Build the server
-npm run build:server
-
-# Create a simple test for the build
-ls -la dist
-ls -la dist/public
-
-# If all looks good, start the server
-NODE_ENV=production node render.js
+# Push a test telemetry point
+curl -X POST https://<service-name>.onrender.com/api/telemetry \
+  -H "Content-Type: application/json" \
+  -d '{"type":"newAnomalyPoint","data":{
+        "latitude":51.501,"longitude":-0.123,"anomalyValue":0.85,
+        "timestamp":"2026-04-25T01:00:00Z","ax":0.01,"az":0.99,
+        "pressure":1013,"temperature":21,"satellites":9}}'
+# → {"ok":true,"broadcast":<open dashboards>}
 ```
 
-This should help you successfully deploy your application to Render.
+If a dashboard tab is open at the same time, the test point will appear on the map within 1 s.
+
+---
+
+## Local build verification
+
+Run the same build Render runs:
+
+```bash
+bash build-render.sh
+NODE_ENV=production PORT=5000 node dist/index.js
+```
+
+Then visit `http://localhost:5000`. If everything works locally, it will work on Render.
+
+---
+
+## Free-tier gotchas
+
+- **Cold starts after 15 min idle.** First request after sleep takes ~30 s. Wokwi sketches should hit `/api/health` once at boot to wake the dyno.
+- **Volatile in-memory storage.** Restarts (deploys, sleep cycles) wipe the legacy anomaly history. Recorded runs live in browser state and survive page refreshes only as long as the tab is open.
+- **WebSocket idle timeout ≈ 10 min.** Idle dashboards reconnect via the existing 5 s reconnect loop in `useWebSocket`. Dashboards actively recording at 2 Hz never go idle.
+- **Build minutes are limited.** Free tier ≈ 500 build min/month. Each deploy uses ~3 min of build time.
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Build fails: `vite: command not found` | `NODE_ENV=production` on `npm ci` skipped devDeps | Build command must include `--include=dev` (already in render.yaml) |
+| Build fails: `Cannot find module 'app/server/index.ts'` | Wrong working directory | Render runs at repo root by default; no rootDir override needed |
+| 502 on first request | Cold start | Wait 30 s and retry, or add an external pinger (e.g. UptimeRobot) hitting `/api/health` every 10 min |
+| WebSocket fails with 1006 | Mixed content (page on https, ws:// requested) | Always use `wss://` in production — never `ws://` |
+| `dist/public` missing after build | `vite build` didn't run | Inspect Render build logs; the build command must complete all three steps |
+| `/api/telemetry` returns 400 | Payload missing required fields | Required: `latitude`, `longitude`, `anomalyValue`, `timestamp`. All other fields optional. |
+
+---
+
+## What was removed from this setup
+
+- **`render.js`** (deleted) — was a forked entry point with its own Express + WebSocket server that bypassed all schema validation, `/api/health`, and `/api/telemetry`. Production now uses `dist/index.js` (the bundled `app/server/index.ts`) as the single source of truth.
+- **Multiple esbuild entry points** — collapsed to a single `app/server/index.ts` entry; esbuild walks the import graph itself.
