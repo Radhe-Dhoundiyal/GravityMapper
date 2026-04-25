@@ -3,34 +3,24 @@ services:
     name: gadv-web-dashboard
     env: node
     plan: free
-    # ── Build ──────────────────────────────────────────────────────────────
-    # 1. Install ALL deps (devDependencies included) — vite and esbuild are
-    #    required for the build. We override the npm production-mode default
-    #    with --include=dev.
-    # 2. Build the React client → dist/public  (path set in vite.config.ts).
-    # 3. Bundle the Express server (single entry point: app/server/index.ts)
-    #    → dist/index.js.  esbuild walks the import graph; --packages=external
-    #    keeps node_modules out of the bundle so they're loaded at runtime.
+    # Build
+    # 1. Install all deps, including devDependencies, because vite and esbuild
+    #    are required by the package build script.
+    # 2. Run the package build script. It builds the React client into
+    #    dist/public and bundles app/server/index.ts into dist/index.js.
     buildCommand: |
       npm ci --include=dev
-      npx vite build
-      npx esbuild app/server/index.ts \
-        --platform=node \
-        --packages=external \
-        --bundle \
-        --format=esm \
-        --outdir=dist
-    # ── Start ──────────────────────────────────────────────────────────────
-    # Single Node process — serves /api/*, /ws (WebSocket), and the built
-    # frontend from dist/public. Binds to $PORT (Render injects this).
-    startCommand: node dist/index.js
-    # ── Health ─────────────────────────────────────────────────────────────
+      npm run build
+    # Start
+    # Single Node process serves /api/*, /ws, and the built frontend from
+    # dist/public. The package start script runs dist/index.js and binds to
+    # $PORT via app/server/index.ts.
+    startCommand: npm run start
+    # Health
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
-      # SESSION_SECRET is reserved for any future cookie/session support
-      # added on top of the current MemStorage layer. Generated once at
-      # service create-time and persisted across deploys.
+      # SESSION_SECRET is reserved for future cookie/session support.
       - key: SESSION_SECRET
         generateValue: true
