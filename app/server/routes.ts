@@ -37,6 +37,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
   const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
 
+  // ── Shared broadcaster ────────────────────────────────────────────────────
+  // Lifted out of the connection handler so the HTTP telemetry fallback
+  // (POST /api/telemetry, used by Wokwi/ESP32 when WebSocket isn't an option)
+  // can push to every connected dashboard client through the same fan-out.
+  function broadcastToAll(data: unknown) {
+    const payload = JSON.stringify(data);
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(payload);
+      }
+    });
+  }
+
   // ── WebSocket ─────────────────────────────────────────────────────────────
   wss.on("connection", (ws) => {
     console.log("WebSocket client connected");
@@ -99,13 +112,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
 
     ws.on("close", () => console.log("WebSocket client disconnected"));
+  });
 
-    function broadcastToAll(data: unknown) {
-      wss.clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify(data));
-        }
-      });
+  // ── REST: health probe ────────────────────────────────────────────────────
+  // Cheap liveness check — used by Render, uptime monitors, and the Wokwi
+  // sketch to confirm the service is reachable before opening a WebSocket
+  // or POSTing telemetry. Always JSON, never blocked by storage state.
+  app.get("/api/health", (_req, res) => {
+    res.json({
+      ok:      true,
+      service: "gadv",
+      time:    new Date().toISOString(),
+    });
+  });
+
+  // ── REST: telemetry HTTP fallback ─────────────────────────────────────────
+  // Same payload shape as the WebSocket "newAnomalyPoint" message:
+  //   { "type": "newAnomalyPoint", "data": { ...sensor fields... } }
+  // Validated with the same `sensorDataPointSchema`, persisted with the same
+  // legacy 4-field projection, and broadcast through the same `broadcastToAll`
+  // fan-out — so HTTP-posted points are indistinguishable from WS-posted ones
+  // on the dashboard side.
+  // Intended only as a fallback for environments (e.g. Wokwi) where the
+  // ESP32 sketch can't easily hold an outgoing WebSocket open.
+  app.post("/api/telemetry", async (req, res) => {
+    try {
+      const body = req.body ?? {};
+      // Accept both wrapped { type, data } and bare sensor payloads for convenience.
+      const raw = body.type === "newAnomalyPoint" ? body.data : body;
+      const rich = sensorDataPointSchema.parse(raw);
+
+      storage.createAnomalyPoint({
+        latitude:     String(rich.latitude),
+        longitude:    String(rich.longitude),
+        anomalyValue: String(rich.anomalyValue),
+        timestamp:    rich.timestamp,
+      }).catch((e) => console.warn("[http] legacy persist failed:", e?.message ?? e));
+
+      broadcastToAll({ type: "newAnomalyPoint", data: rich });
+
+      res.json({ ok: true, broadcast: wss.clients.size });
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        console.warn("[http] rejected telemetry packet:", err.errors);
+        res.status(400).json({ ok: false, message: "Invalid data", details: err.errors });
+      } else {
+        console.error("[http] telemetry error:", err);
+        res.status(500).json({ ok: false, message: "Failed to broadcast point" });
+      }
     }
   });
 
