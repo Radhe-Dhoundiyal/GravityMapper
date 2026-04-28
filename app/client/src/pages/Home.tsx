@@ -70,6 +70,19 @@ function calcStats(
   return { totalAnomalies: points.length, lowAnomalies: low, mediumAnomalies: med, highAnomalies: high, maxAnomaly: max, avgAnomaly: sum / points.length };
 }
 
+function coerceDate(value: unknown): Date {
+  const date = value instanceof Date ? value : new Date(typeof value === 'string' || typeof value === 'number' ? value : Date.now());
+  return Number.isNaN(date.getTime()) ? new Date() : date;
+}
+
+function isFinitePoint(point: Partial<SensorDataPoint>): point is SensorDataPoint {
+  return (
+    Number.isFinite(point.latitude) &&
+    Number.isFinite(point.longitude) &&
+    Number.isFinite(point.anomalyValue)
+  );
+}
+
 // ── component ─────────────────────────────────────────────────────────────────
 const Home: React.FC = () => {
   // ── Runs state ─────────────────────────────────────────────────────────────
@@ -88,6 +101,8 @@ const Home: React.FC = () => {
     totalAnomalies: 0, lowAnomalies: 0, mediumAnomalies: 0, highAnomalies: 0, maxAnomaly: 0, avgAnomaly: 0,
   });
   const [lastDataPoint, setLastDataPoint] = useState<SensorDataPoint | null>(null);
+  const [lastTelemetryReceivedAt, setLastTelemetryReceivedAt] = useState<Date | null>(null);
+  const simulatedTelemetryMetaRef = useRef<Pick<SensorDataPoint, 'device_id' | 'experiment_id' | 'run_id'>>({});
 
   // ── UI state ───────────────────────────────────────────────────────────────
   const [isSidebarVisible, setIsSidebarVisible]     = useState(false);
@@ -115,8 +130,8 @@ const Home: React.FC = () => {
   const [isStreaming, setIsStreaming]             = useState(false);
 
   // ── WebSocket ──────────────────────────────────────────────────────────────
-  const { isConnected: wsConnected, connect: wsConnect, disconnect: wsDisconnect, sendMessage: wsSendMessage }
-    = useWebSocket({ onMessage: handleWebSocketMessage, manual: true });
+  const { isConnected: wsConnected, status: wsStatus, sendMessage: wsSendMessage }
+    = useWebSocket({ onMessage: handleWebSocketMessage });
 
   // ── Run helpers ────────────────────────────────────────────────────────────
   const createLiveRun = useCallback((): ExperimentRun => {
@@ -133,23 +148,41 @@ const Home: React.FC = () => {
       visible: true,
       color: nextRunColor(),
     };
+    simulatedTelemetryMetaRef.current = {
+      device_id: connectionSettings.deviceId || 'sim-rover-001',
+      experiment_id: run.experimentId,
+      run_id: run.runId,
+    };
     return run;
   }, [connectionSettings]);
 
   // WebSocket message handler — single ingestion point for BOTH simulated
   // and (future) ESP32 live data. All packets land here regardless of source.
   function handleWebSocketMessage(data: WebSocketMessage) {
+    if (!data || typeof data.type !== 'string') {
+      dbg('ignored malformed WS message', data);
+      return;
+    }
+
     if (data.type === 'newAnomalyPoint') {
-      const raw = data.data as any;
-      const newPoint: SensorDataPoint = {
+      const raw = (data.data ?? {}) as any;
+      const newPoint: Partial<SensorDataPoint> = {
         ...raw,
-        timestamp: typeof raw.timestamp === 'string' ? new Date(raw.timestamp) : raw.timestamp,
+        latitude: typeof raw.latitude === 'string' ? Number(raw.latitude) : raw.latitude,
+        longitude: typeof raw.longitude === 'string' ? Number(raw.longitude) : raw.longitude,
+        anomalyValue: typeof raw.anomalyValue === 'string' ? Number(raw.anomalyValue) : raw.anomalyValue,
+        timestamp: coerceDate(raw.timestamp),
       };
+      if (!isFinitePoint(newPoint)) {
+        dbg('ignored invalid telemetry point', raw);
+        return;
+      }
       dbg('packet received via WS', {
         lat: newPoint.latitude, lng: newPoint.longitude,
         anom: newPoint.anomalyValue,
         keys: Object.keys(newPoint).length,
       });
+      setLastTelemetryReceivedAt(new Date());
       addLivePoint(newPoint);
     } else if (data.type === 'initialData') {
       // ── Defensive: server should always send an array, but a future schema
@@ -160,23 +193,27 @@ const Home: React.FC = () => {
       //    anomaly_points table stores lat/lng/anomalyValue as Postgres
       //    NUMERIC, which serialises to JSON strings) back to numbers so
       //    downstream `.toFixed()` / arithmetic doesn't throw.
-      const points: SensorDataPoint[] = raw.map(p => ({
-        ...p,
-        latitude:     typeof p.latitude     === 'string' ? Number(p.latitude)     : p.latitude,
-        longitude:    typeof p.longitude    === 'string' ? Number(p.longitude)    : p.longitude,
-        anomalyValue: typeof p.anomalyValue === 'string' ? Number(p.anomalyValue) : p.anomalyValue,
-        timestamp:    p.timestamp instanceof Date ? p.timestamp : new Date(p.timestamp),
-      }));
+      const points: SensorDataPoint[] = raw
+        .map(p => ({
+          ...p,
+          latitude:     typeof p.latitude     === 'string' ? Number(p.latitude)     : p.latitude,
+          longitude:    typeof p.longitude    === 'string' ? Number(p.longitude)    : p.longitude,
+          anomalyValue: typeof p.anomalyValue === 'string' ? Number(p.anomalyValue) : p.anomalyValue,
+          timestamp:    coerceDate(p.timestamp),
+        }))
+        .filter(isFinitePoint);
 
       if (points.length > 0) {
         setDataLogs(points.slice(-100));
         setLastDataPoint(points[points.length - 1]);
         setStatistics(calcStats(points, settings.thresholds));
+        setLastTelemetryReceivedAt(new Date());
         showToast(`Loaded ${points.length} historical points`, 'info');
       }
     } else if (data.type === 'dataCleared') {
       setDataLogs([]);
       setLastDataPoint(null);
+      setLastTelemetryReceivedAt(null);
       setStatistics(calcStats([], settings.thresholds));
       showToast('Live data cleared', 'info');
     } else if (data.type === 'error') {
@@ -195,7 +232,7 @@ const Home: React.FC = () => {
         return prev;
       }
       const updated = [...prev];
-      updated[idx] = { ...updated[idx], points: [...updated[idx].points, point] };
+      updated[idx] = { ...updated[idx], points: [...(updated[idx].points ?? []), point] };
       dbg('point appended to run', updated[idx].runId, '→', updated[idx].points.length, 'pts');
       return updated;
     });
@@ -234,21 +271,28 @@ const Home: React.FC = () => {
           return;
         }
       }
-      wsConnect();
       setConnectionStatus(connectionSettings.connectionType === 'simulate' ? 'simulation' : 'connected');
-      showToast('Connected', 'success');
+      showToast(
+        connectionSettings.connectionType === 'simulate'
+          ? 'Simulation ready'
+          : (wsConnected ? 'Connected' : 'Connection mode set; WebSocket is reconnecting'),
+        wsConnected || connectionSettings.connectionType === 'simulate' ? 'success' : 'warning'
+      );
     } else {
       if (isStreaming) handleToggleStream();
-      wsDisconnect();
       setConnectionStatus('disconnected');
       showToast('Disconnected', 'info');
     }
-  }, [connectionStatus, connectionSettings, isStreaming, wsConnect, wsDisconnect, showToast]);
+  }, [connectionStatus, connectionSettings, isStreaming, wsConnected, showToast]);
 
   // ── Stream handling ────────────────────────────────────────────────────────
   const handleToggleStream = useCallback(() => {
     if (connectionStatus === 'disconnected') {
       showToast('Connect first', 'error');
+      return;
+    }
+    if (!wsConnected) {
+      showToast('WebSocket is reconnecting; stream will start when WS is connected', 'warning');
       return;
     }
     if (isStreaming) {
@@ -278,7 +322,7 @@ const Home: React.FC = () => {
       setBottomTab('feed');
       setBottomExpanded(true);
     }
-  }, [connectionStatus, isStreaming, createLiveRun, connectionSettings.connectionType, activeRunId, showToast]);
+  }, [connectionStatus, wsConnected, isStreaming, createLiveRun, connectionSettings.connectionType, activeRunId, showToast]);
 
   // ── Simulate sensor data ───────────────────────────────────────────────────
   // Generates a realistic packet via a persistent random-walk (so successive
@@ -313,6 +357,10 @@ const Home: React.FC = () => {
     const speed = +((Math.random() * 0.6 + 0.2)).toFixed(2);
 
     const dataPoint: SensorDataPoint = {
+      ...simulatedTelemetryMetaRef.current,
+      device_id:          simulatedTelemetryMetaRef.current.device_id || connectionSettings.deviceId || 'sim-rover-001',
+      experiment_id:      simulatedTelemetryMetaRef.current.experiment_id || 'SIM',
+      run_id:             simulatedTelemetryMetaRef.current.run_id || 'sim-live',
       latitude:           +simWalk.lat.toFixed(6),
       longitude:          +simWalk.lng.toFixed(6),
       anomalyValue,
@@ -336,7 +384,7 @@ const Home: React.FC = () => {
 
     const sent = wsSendMessage({ type: 'newAnomalyPoint', data: dataPoint });
     dbg('sim packet generated', { sent, anom: anomalyValue, lat: dataPoint.latitude });
-  }, [settings.defaultLat, settings.defaultLng, wsSendMessage]);
+  }, [settings.defaultLat, settings.defaultLng, connectionSettings.deviceId, wsSendMessage]);
 
   // ── Run management ─────────────────────────────────────────────────────────
   const handleToggleRunVisibility = useCallback((id: string) => {
@@ -408,6 +456,10 @@ const Home: React.FC = () => {
       showToast('Connect first before recording', 'error');
       return;
     }
+    if (!wsConnected) {
+      showToast('WebSocket is reconnecting; wait for WS CONNECTED before recording', 'warning');
+      return;
+    }
     if (isStreaming) {
       showToast('Already recording — stop the current run first', 'warning');
       return;
@@ -439,6 +491,11 @@ const Home: React.FC = () => {
     setRuns(prev => [run, ...prev]);
     setActiveRunId(run.id);
     setIsStreaming(true);
+    simulatedTelemetryMetaRef.current = {
+      device_id: connectionSettings.deviceId || 'sim-rover-001',
+      experiment_id: experiments.find(e => e.id === run.parentExperimentId)?.experimentId || run.experimentId,
+      run_id: run.runId,
+    };
 
     if (connectionSettings.connectionType === 'simulate') {
       if (simulationInterval) clearInterval(simulationInterval);
@@ -452,7 +509,7 @@ const Home: React.FC = () => {
     showToast(`Recording started: ${runId}`, 'success');
     setBottomTab('feed');
     setBottomExpanded(true);
-  }, [connectionStatus, isStreaming, connectionSettings, generateSimulatedData, showToast]);
+  }, [connectionStatus, wsConnected, isStreaming, connectionSettings, experiments, generateSimulatedData, showToast]);
 
   const handleStopRecording = useCallback(() => {
     if (!isStreaming) return;
@@ -625,7 +682,10 @@ const Home: React.FC = () => {
   const handleZoomIn   = useCallback(() => window.dispatchEvent(new CustomEvent('map:zoomIn')), []);
   const handleZoomOut  = useCallback(() => window.dispatchEvent(new CustomEvent('map:zoomOut')), []);
   const handleCenterMap = useCallback(() => {
-    const detail = lastDataPoint
+    const hasValidLastPoint = lastDataPoint &&
+      Number.isFinite(lastDataPoint.latitude) &&
+      Number.isFinite(lastDataPoint.longitude);
+    const detail = hasValidLastPoint
       ? { lat: lastDataPoint.latitude, lng: lastDataPoint.longitude }
       : { lat: settings.defaultLat, lng: settings.defaultLng };
     window.dispatchEvent(new CustomEvent('map:center', { detail }));
@@ -650,6 +710,8 @@ const Home: React.FC = () => {
       <AppHeader
         connectionStatus={connectionStatus}
         connectionSettings={connectionSettings}
+        wsStatus={wsStatus}
+        lastTelemetryAt={lastTelemetryReceivedAt}
         isStreaming={isStreaming}
         activeRun={activeRun}
         assignedExperiment={assignedExperiment}
@@ -800,13 +862,13 @@ const Home: React.FC = () => {
               <div className="flex-1 min-h-0 overflow-hidden">
                 {bottomTab === 'feed' && (
                   <TelemetryPanel
-                    latestPoint={lastDataPoint ?? (activeRun?.points.slice(-1)[0] ?? null)}
+                    latestPoint={lastDataPoint ?? (activeRun?.points?.slice(-1)[0] ?? null)}
                     activeRun={activeRun}
                     assignedExperiment={assignedExperiment}
                     connectionStatus={connectionStatus}
                     connectionSettings={connectionSettings}
                     isStreaming={isStreaming}
-                    recentPoints={activeRun ? activeRun.points.slice(-15) : dataLogs.slice(-15)}
+                    recentPoints={activeRun ? (activeRun.points ?? []).slice(-15) : dataLogs.slice(-15)}
                     experiments={experiments}
                     onStartRecording={handleStartRecording}
                     onStopRecording={handleStopRecording}

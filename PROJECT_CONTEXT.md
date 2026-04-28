@@ -17,33 +17,33 @@ The central scientific question is whether consumer-grade MEMS sensors can produ
 
 ```text
 .
-├── app/
-│   ├── client/          React + Vite dashboard frontend
-│   ├── server/          Express backend, REST API, WebSocket bridge, CSV processing
-│   └── shared/          Shared TypeScript schemas and DTO definitions
-├── analysis/
-│   ├── scripts/         Python processing scripts, especially gravity_pipeline.py
-│   └── notebooks/       Placeholder area for exploratory Jupyter analysis
-├── hardware/
-│   ├── sensors/         Sensor stack notes and calibration documentation
-│   ├── circuit/         ESP32 circuit/schematic documentation
-│   └── rover/           Mobile platform documentation
-├── data/
-│   ├── raw/             Unmodified field logs and CSV template
-│   └── processed/       Pipeline outputs and run_summary.csv
-├── experiments/
-│   ├── protocols/       Planned experiment protocols E1-E6
-│   └── logs/            Field log placeholder area
-├── docs/                Architecture, methodology, and system overview docs
-├── paper/               Research manuscript draft
-├── attached_assets/     Imported prompts/images/context from prior work
-├── render.yaml          Render web service definition
-├── build-render.sh      Local reproduction of the Render build
-├── package.json         Root Node dependencies and scripts
-├── vite.config.ts       Vite client build config and aliases
-├── tsconfig.json        TypeScript config for app/client, app/server, app/shared
-├── drizzle.config.ts    Drizzle config for future PostgreSQL usage
-└── pyproject.toml       Python project metadata
+|-- app/
+|   |-- client/          React + Vite dashboard frontend
+|   |-- server/          Express backend, REST API, WebSocket bridge, CSV processing
+|   `-- shared/          Shared TypeScript schemas and DTO definitions
+|-- analysis/
+|   |-- scripts/         Python processing scripts, especially gravity_pipeline.py
+|   `-- notebooks/       Placeholder area for exploratory Jupyter analysis
+|-- hardware/
+|   |-- sensors/         Sensor stack notes and calibration documentation
+|   |-- circuit/         ESP32 circuit/schematic documentation
+|   `-- rover/           Mobile platform documentation
+|-- data/
+|   |-- raw/             Unmodified field logs and CSV template
+|   `-- processed/       Pipeline outputs and run_summary.csv
+|-- experiments/
+|   |-- protocols/       Planned experiment protocols E1-E6
+|   `-- logs/            Field log placeholder area
+|-- docs/                Architecture, methodology, and system overview docs
+|-- paper/               Research manuscript draft
+|-- attached_assets/     Imported prompts/images/context from prior work
+|-- render.yaml          Render web service definition
+|-- build-render.sh      Local reproduction of the Render build
+|-- package.json         Root Node dependencies and scripts
+|-- vite.config.ts       Vite client build config and aliases
+|-- tsconfig.json        TypeScript config for app/client, app/server, app/shared
+|-- drizzle.config.ts    Drizzle config for future PostgreSQL usage
+`-- pyproject.toml       Python project metadata
 ```
 
 ## Frontend Architecture
@@ -62,7 +62,7 @@ The frontend is a React single-page app built with Vite. It uses:
 - `wouter` for routing.
 - `@tanstack/react-query` infrastructure, though most dashboard state is local React state.
 - Leaflet for map rendering in `app/client/src/components/MapView.tsx`.
-- Recharts and local components for telemetry/plot/compare panels.
+- Recharts and local components for telemetry, anomaly plot, and run comparison panels.
 - A shadcn/Radix-style UI component set under `app/client/src/components/ui`.
 
 `Home.tsx` is the main orchestration component. It owns:
@@ -73,15 +73,16 @@ The frontend is a React single-page app built with Vite. It uses:
 - CSV upload handling.
 - Map filters and color modes.
 - Export to CSV/JSON.
-- WebSocket connect/disconnect and message handling.
+- WebSocket telemetry ingestion and recording state.
 
-Real-time communication is handled by `app/client/src/lib/useWebSocket.ts`. It connects to:
+Real-time communication is handled by `app/client/src/lib/useWebSocket.ts`. The hook auto-connects on page load to the current host:
 
 ```text
-/ws
+ws://<current-host>/ws    for local HTTP
+wss://<current-host>/ws   for HTTPS/Render
 ```
 
-using `ws://` or `wss://` depending on the page protocol.
+It reconnects every 5 seconds after disconnects, server restarts, or Render wakeups. Development-only console diagnostics use the `[WS]` prefix. `AppHeader.tsx` displays `WS CONNECTED`, `WS DISCONNECTED`, or `WS RECONNECTING`, plus `Last telemetry received: X seconds ago`.
 
 The frontend expects live packets in this shape:
 
@@ -97,7 +98,7 @@ The frontend expects live packets in this shape:
 }
 ```
 
-Additional IMU, GPS quality, pressure, temperature, altitude, smoothed anomaly, and stationary fields are optional.
+Additional IMU, GPS quality, pressure, temperature, altitude, smoothed anomaly, and stationary fields are optional. The dashboard defensively ignores malformed packets and invalid point coordinates/values.
 
 ## Backend Architecture
 
@@ -215,17 +216,17 @@ It defines one Node web service:
 gadv-web-dashboard
 ```
 
-Build command:
+Current Render build command:
 
 ```bash
 npm ci --include=dev
-npx vite build
-npx esbuild app/server/index.ts \
-  --platform=node \
-  --packages=external \
-  --bundle \
-  --format=esm \
-  --outdir=dist
+npm run build
+```
+
+`npm run build` currently runs:
+
+```bash
+vite build && esbuild app/server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist
 ```
 
 Build outputs:
@@ -233,10 +234,16 @@ Build outputs:
 - `dist/public`: Vite-built React frontend.
 - `dist/index.js`: esbuild-bundled Express server.
 
-Start command:
+Current Render start command:
 
 ```bash
-node dist/index.js
+npm run start
+```
+
+`npm run start` currently runs:
+
+```bash
+NODE_ENV=production node dist/index.js
 ```
 
 The single Node process serves:
@@ -251,15 +258,17 @@ Health check:
 /api/health
 ```
 
-`build-render.sh` mirrors the Render build locally and checks for the expected output files.
+`build-render.sh` still mirrors the older explicit Render build steps and may need to be checked if used locally. `render.yaml` is the current deployment source of truth.
 
 ## Runtime Entrypoints
 
-Development web app:
+Development web app source entry:
 
 ```bash
 NODE_ENV=development tsx app/server/index.ts
 ```
+
+Important: the current root `npm run dev` script still points to `server/index.ts`, which does not match the repo layout. Use the direct command above unless/until the script is fixed.
 
 Production web app after build:
 
@@ -270,7 +279,7 @@ NODE_ENV=production PORT=5000 node dist/index.js
 Render production start:
 
 ```bash
-node dist/index.js
+npm run start
 ```
 
 Frontend source entry:
@@ -308,6 +317,7 @@ Required or relevant variables:
 - `PORT`: Port used by `app/server/index.ts`. Render injects this automatically. Local fallback is `5000`.
 - `SESSION_SECRET`: Present in `.env` and generated in Render. Currently reserved for future session/cookie support.
 - `DATABASE_URL`: Required by `drizzle.config.ts` for `drizzle-kit push`, but not required by the running app because it currently uses `MemStorage`.
+
 Current `.env` usage is minimal. The app does not currently load a database connection at runtime.
 
 ## Current Limitations
@@ -316,7 +326,7 @@ Current `.env` usage is minimal. The app does not currently load a database conn
 - Runs and experiments mostly live in frontend React state, not durable storage.
 - PostgreSQL/Drizzle is partially scaffolded but not integrated into the runtime backend.
 - `drizzle.config.ts` appears to reference `./shared/schema.ts`, but the actual schema is `app/shared/schema.ts`.
-- Root `package.json` scripts reference `server/index.ts`, while the real server path is `app/server/index.ts`. Render uses the correct path.
+- Root `npm run dev` still references `server/index.ts`, while the real server path is `app/server/index.ts`.
 - Docs mention `preprocess.py` in several places, but the real pipeline script is `gravity_pipeline.py`.
 - Hardware docs show `anomalyData`, but the implemented WebSocket message type is `newAnomalyPoint`.
 - Raw CSV server-side processing depends on Python plus numpy/pandas availability. A Node-only Render service may not always provide the right Python environment unless explicitly configured.
@@ -324,16 +334,40 @@ Current `.env` usage is minimal. The app does not currently load a database conn
 - Some markdown/doc text appears to have character encoding artifacts in terminal output.
 - WebSocket telemetry is unauthenticated and accepts any client that can reach the service.
 - Uploaded files are temporarily written to `uploads/`; this directory is created at runtime and cleaned after each upload, but there is no persistent upload audit trail.
+- `npm run check` currently fails on pre-existing type issues unrelated to the recent WebSocket work: missing Leaflet typings, a `MapView.tsx` narrowing issue, and `app/server/vite.ts` typing for `allowedHosts`.
+- Local production smoke start on Windows may fail with `listen ENOTSUP 0.0.0.0:<port>` because of the server listen configuration. Render/Linux remains the intended production environment.
 
 ## Future Extensions
 
 - Replace `MemStorage` with a real PostgreSQL-backed storage implementation using the existing Drizzle schema.
 - Add durable models for experiments, runs, telemetry packets, and uploaded files.
 - Align all docs and hardware examples with the implemented `newAnomalyPoint` packet shape.
-- Fix root npm scripts so local `npm run dev`, `npm run build`, and `npm run start` match the `app/server` layout.
+- Fix root `npm run dev` so local development uses `app/server/index.ts`.
 - Add a Render-compatible Python setup if raw CSV processing is expected in production.
 - Consolidate CSV parsing into one shared server-side pathway.
 - Add authentication or device tokens for ESP32 telemetry ingestion.
 - Add SD-card/offline-log import guidance for field hardware.
 - Add automated tests for schema validation, CSV upload behavior, WebSocket broadcasting, and the Python pipeline.
 - Add deployment checks that verify both Node build artifacts and Python pipeline availability.
+
+## Recently Modified Files
+
+Recent work before this handover focused on removing Replit-specific artifacts, aligning Render deployment with package scripts, and improving live WebSocket reliability.
+
+Known recent modifications:
+
+- `app/client/src/lib/useWebSocket.ts`: Auto-connects to the current host `/ws`, tracks `connected`/`disconnected`/`reconnecting`, reconnects every 5 seconds, and logs lightweight dev diagnostics with `[WS]`.
+- `app/client/src/components/AppHeader.tsx`: Shows `WS CONNECTED`, `WS DISCONNECTED`, `WS RECONNECTING`, and `Last telemetry received: X seconds ago`.
+- `app/client/src/pages/Home.tsx`: Wires WebSocket transport status into the dashboard, tracks last telemetry receipt time, guards malformed packets and empty run point arrays, and keeps Simulation mode separate from transport connection setup.
+- `app/client/src/lib/types.ts`: Adds the `WebSocketStatus` type.
+- `render.yaml`: Uses `npm ci --include=dev`, `npm run build`, and `npm run start`.
+- `package.json`: `build` uses `app/server/index.ts`; `start` uses `dist/index.js`. `dev` still needs correction.
+- `.replit`: Removed in prior cleanup.
+- `app/client/index.html`, `vite.config.ts`, `README.md`, `docs/system-overview.md`, `package.json`, `package-lock.json`: Replit-specific references/plugins were removed in prior cleanup.
+- `PROJECT_CONTEXT.md`: Regenerated for this handover.
+- `ENVIRONMENT_NOTES.md`: Added for this handover.
+
+Last confirmed build status from prior session:
+
+- `npm.cmd run build` passed with Node v24/npm v11 after the WebSocket diagnostics work.
+- `npm.cmd run check` failed on pre-existing unrelated type issues listed above.

@@ -1,27 +1,39 @@
 import { useEffect, useState, type FC } from "react";
 import { Button } from "@/components/ui/button";
-import { ChartScatter, Settings, Wifi, WifiOff, Radio, Circle, FlaskConical } from "lucide-react";
+import { ChartScatter, Settings, Wifi, WifiOff, Radio, Circle, FlaskConical, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { ConnectionStatus, ExperimentRun, Experiment, ConnectionSettings } from "@/lib/types";
+import { ConnectionStatus, ExperimentRun, Experiment, ConnectionSettings, WebSocketStatus } from "@/lib/types";
 
 interface AppHeaderProps {
-  connectionStatus:   ConnectionStatus;
+  connectionStatus: ConnectionStatus;
   connectionSettings: ConnectionSettings;
-  isStreaming:        boolean;
-  activeRun:          ExperimentRun | null;
+  wsStatus: WebSocketStatus;
+  lastTelemetryAt: Date | null;
+  isStreaming: boolean;
+  activeRun: ExperimentRun | null;
   assignedExperiment: Experiment | null;
-  onOpenSettings:     () => void;
+  onOpenSettings: () => void;
 }
 
 const fmtClock = (d: Date) =>
   d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 
+const fmtTelemetryAge = (lastTelemetryAt: Date | null, now: Date) => {
+  if (!lastTelemetryAt || Number.isNaN(lastTelemetryAt.getTime())) return 'never';
+  const seconds = Math.max(0, Math.floor((now.getTime() - lastTelemetryAt.getTime()) / 1000));
+  return `${seconds} second${seconds === 1 ? '' : 's'} ago`;
+};
+
 const AppHeader: FC<AppHeaderProps> = ({
-  connectionStatus, connectionSettings,
-  isStreaming, activeRun, assignedExperiment,
+  connectionStatus,
+  connectionSettings,
+  wsStatus,
+  lastTelemetryAt,
+  isStreaming,
+  activeRun,
+  assignedExperiment,
   onOpenSettings,
 }) => {
-  // Live ticking clock
   const [now, setNow] = useState<Date>(() => new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -51,10 +63,32 @@ const AppHeader: FC<AppHeaderProps> = ({
     }
   })();
 
+  const wsBadge = (() => {
+    switch (wsStatus) {
+      case 'connected':
+        return (
+          <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] px-1.5 py-0 h-5">
+            <Wifi className="h-2.5 w-2.5 mr-1" /> WS CONNECTED
+          </Badge>
+        );
+      case 'reconnecting':
+        return (
+          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-[10px] px-1.5 py-0 h-5">
+            <RefreshCw className="h-2.5 w-2.5 mr-1 animate-spin" /> WS RECONNECTING
+          </Badge>
+        );
+      default:
+        return (
+          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 text-[10px] px-1.5 py-0 h-5">
+            <WifiOff className="h-2.5 w-2.5 mr-1" /> WS DISCONNECTED
+          </Badge>
+        );
+    }
+  })();
+
   return (
     <header className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white shadow-lg border-b border-slate-700 px-3 py-1.5">
       <div className="flex items-center gap-3">
-        {/* Title */}
         <div className="flex items-center gap-2 flex-shrink-0">
           <ChartScatter className="h-5 w-5 text-blue-400" />
           <div className="leading-tight">
@@ -65,9 +99,13 @@ const AppHeader: FC<AppHeaderProps> = ({
 
         <div className="h-6 w-px bg-slate-700 mx-1" />
 
-        {/* Mode + connection */}
         <div className="flex items-center gap-1.5 flex-wrap">
           {connBadge}
+          {wsBadge}
+
+          <Badge variant="outline" className="bg-slate-800 text-slate-300 border-slate-600 text-[10px] px-1.5 py-0 h-5">
+            Last telemetry received: <span className="ml-1 font-mono">{fmtTelemetryAge(lastTelemetryAt, now)}</span>
+          </Badge>
 
           <Badge variant="outline" className="bg-slate-800 text-slate-300 border-slate-600 text-[10px] px-1.5 py-0 h-5">
             MODE: <span className="ml-1 font-mono uppercase">{connectionSettings.connectionType}</span>
@@ -85,7 +123,6 @@ const AppHeader: FC<AppHeaderProps> = ({
             STREAM: {isStreaming ? 'LIVE' : 'IDLE'}
           </Badge>
 
-          {/* Active run */}
           {activeRun && (
             <Badge variant="outline" className="bg-slate-800 text-slate-300 border-slate-600 text-[10px] px-1.5 py-0 h-5">
               <span className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: activeRun.color }} />
@@ -93,7 +130,6 @@ const AppHeader: FC<AppHeaderProps> = ({
             </Badge>
           )}
 
-          {/* Assigned experiment */}
           {assignedExperiment && (
             <Badge variant="outline" className="bg-purple-900/30 text-purple-200 border-purple-700 text-[10px] px-1.5 py-0 h-5">
               <FlaskConical className="h-2.5 w-2.5 mr-1" />
@@ -104,7 +140,6 @@ const AppHeader: FC<AppHeaderProps> = ({
 
         <div className="flex-1" />
 
-        {/* Local clock */}
         <div className="text-right leading-tight font-mono">
           <div className="text-sm text-slate-100">{fmtClock(now)}</div>
           <div className="text-[9px] text-slate-400 uppercase tracking-wider">{now.toLocaleDateString()}</div>

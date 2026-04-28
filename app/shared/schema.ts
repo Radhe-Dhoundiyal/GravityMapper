@@ -80,6 +80,9 @@ export interface AnomalyFilters {
 //     IMU/baro/GPS fields are optional so older firmware revisions still
 //     pass validation. ───────────────────────────────────────────────────
 export const sensorDataPointSchema = z.object({
+  device_id:      z.string().optional(),
+  experiment_id:  z.string().optional(),
+  run_id:         z.string().optional(),
   // Required — every packet must locate itself + report the headline value
   latitude:       z.number(),
   longitude:      z.number(),

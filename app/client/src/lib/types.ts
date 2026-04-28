@@ -1,6 +1,9 @@
 // ─── Core sensor data point (backward-compatible superset of old AnomalyDataPoint) ───
 export interface SensorDataPoint {
   id?: number;
+  device_id?: string;
+  experiment_id?: string;
+  run_id?: string;
   latitude: number;
   longitude: number;
   anomalyValue: number;
@@ -94,6 +97,7 @@ export interface AnomalyFilters {
 }
 
 export type ConnectionStatus = 'disconnected' | 'connected' | 'simulation';
+export type WebSocketStatus = 'connected' | 'disconnected' | 'reconnecting';
 export type MapColorMode = 'anomaly' | 'run';
 
 export interface WebSocketMessage {

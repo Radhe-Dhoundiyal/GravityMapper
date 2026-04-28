@@ -116,6 +116,7 @@ curl https://<service-name>.onrender.com/api/health
 curl -X POST https://<service-name>.onrender.com/api/telemetry \
   -H "Content-Type: application/json" \
   -d '{"type":"newAnomalyPoint","data":{
+        "device_id":"rover-001","experiment_id":"EXP-001","run_id":"RUN-001",
         "latitude":51.501,"longitude":-0.123,"anomalyValue":0.85,
         "timestamp":"2026-04-25T01:00:00Z","ax":0.01,"az":0.99,
         "pressure":1013,"temperature":21,"satellites":9}}'

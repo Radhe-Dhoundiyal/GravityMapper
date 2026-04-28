@@ -184,6 +184,9 @@ const TelemetryPanel: FC<TelemetryPanelProps> = ({
     connectionStatus === 'simulation' ? 'warn' : 'bad';
 
   const sourceMode = activeRun?.mode ?? null;
+  const displayDeviceId = p?.device_id || 'unknown';
+  const displayExperimentId = p?.experiment_id || 'unassigned';
+  const displayRunId = p?.run_id || 'none';
   const processingSource: string =
     activeRun?.processingSource ? activeRun.processingSource :
     activeRun?.mode === 'live'      ? 'live' :
@@ -365,14 +368,18 @@ const TelemetryPanel: FC<TelemetryPanelProps> = ({
       {/* ── Operator summary strip ───────────────────────────────────────────── */}
       <div className="px-2 py-1 bg-gray-50/70 border-b border-gray-100 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px]">
         <div className="flex items-center gap-1">
-          <span className="text-gray-400 uppercase tracking-wide">Run:</span>
-          <span className="font-mono text-gray-800">{activeRun?.runId ?? '—'}</span>
-          {activeRun && <span className="w-2 h-2 rounded-full" style={{ backgroundColor: activeRun.color }} />}
+          <span className="text-gray-400 uppercase tracking-wide">Device:</span>
+          <span className="font-mono text-gray-800">{displayDeviceId}</span>
         </div>
         <div className="flex items-center gap-1">
           <FlaskConical className="h-2.5 w-2.5 text-purple-400" />
-          <span className="text-gray-400 uppercase tracking-wide">Exp:</span>
-          <span className="text-gray-800">{assignedExperiment?.name ?? '— unassigned —'}</span>
+          <span className="text-gray-400 uppercase tracking-wide">Experiment:</span>
+          <span className="font-mono text-gray-800">{displayExperimentId}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-gray-400 uppercase tracking-wide">Run:</span>
+          <span className="font-mono text-gray-800">{displayRunId}</span>
+          {activeRun && <span className="w-2 h-2 rounded-full" style={{ backgroundColor: activeRun.color }} />}
         </div>
         <div className="flex items-center gap-1">
           <span className="text-gray-400 uppercase tracking-wide">Mode:</span>
