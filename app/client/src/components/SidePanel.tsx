@@ -9,7 +9,7 @@ import RunsPanel, { UploadState } from "./RunsPanel";
 import StatsPanel from "./StatsPanel";
 import ExperimentsPanel from "./ExperimentsPanel";
 import { Experiment } from "@/lib/types";
-import { Link, Unlink, Table, Code, Trash2 } from "lucide-react";
+import { Download, Link, Unlink, Table, Code, Trash2 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -33,6 +33,10 @@ interface SidePanelProps {
   thresholds: { medium: number; high: number };
   onExportCSV: () => void;
   onExportJSON: () => void;
+  onExportSelectedRunSummary: () => void;
+  onExportSelectedExperimentSummary: () => void;
+  onExportAnomaliesJSON: () => void;
+  onExportAnomaliesCSV: () => void;
   onClearData: () => void;
   // runs
   runs: ExperimentRun[];
@@ -42,16 +46,21 @@ interface SidePanelProps {
   onLoadMockData: () => void;
   onUploadCSV: (file: File) => void;
   onDeleteRun: (id: string) => void;
+  onProcessRun: (run: ExperimentRun) => void;
+  processingRunIds?: string[];
   uploadState?: UploadState;
   uploadError?: string;
+  detectedAnomalyCount: number;
   // experiments
   experiments: Experiment[];
   selectedExperimentId: string | null;
   onSelectExperiment: (id: string | null) => void;
   onCreateExperiment: (data: { name: string; experimentType: string; description: string }) => void;
+  onUpdateExperimentMetadata: (id: string, metadata: Pick<Experiment, 'location' | 'operator' | 'description' | 'grid_spacing' | 'sensor_configuration' | 'notes'>) => void;
   onDeleteExperiment: (id: string) => void;
   onAssignRunToExperiment: (runId: string, experimentId: string | null) => void;
   onCreateExperimentForRun: (runId: string) => void;
+  onUpdateRunMetadata: (id: string, metadata: Pick<ExperimentRun, 'location' | 'notes' | 'processing_status'>) => void;
 }
 
 const SidePanel: React.FC<SidePanelProps> = ({
@@ -65,6 +74,10 @@ const SidePanel: React.FC<SidePanelProps> = ({
   thresholds,
   onExportCSV,
   onExportJSON,
+  onExportSelectedRunSummary,
+  onExportSelectedExperimentSummary,
+  onExportAnomaliesJSON,
+  onExportAnomaliesCSV,
   onClearData,
   runs,
   selectedRunIds,
@@ -73,15 +86,20 @@ const SidePanel: React.FC<SidePanelProps> = ({
   onLoadMockData,
   onUploadCSV,
   onDeleteRun,
+  onProcessRun,
+  processingRunIds,
   uploadState,
   uploadError,
+  detectedAnomalyCount,
   experiments,
   selectedExperimentId,
   onSelectExperiment,
   onCreateExperiment,
+  onUpdateExperimentMetadata,
   onDeleteExperiment,
   onAssignRunToExperiment,
   onCreateExperimentForRun,
+  onUpdateRunMetadata,
 }) => {
   const isConnected = connectionStatus !== 'disconnected';
   const maxAnomalyPercent = Math.min(anomalyStats.maxAnomaly / 2 * 100, 100);
@@ -266,6 +284,8 @@ const SidePanel: React.FC<SidePanelProps> = ({
             onLoadMockData={onLoadMockData}
             onUploadCSV={onUploadCSV}
             onDeleteRun={onDeleteRun}
+            onProcessRun={onProcessRun}
+            processingRunIds={processingRunIds}
             uploadState={uploadState}
             uploadError={uploadError}
             experiments={experiments}
@@ -283,8 +303,10 @@ const SidePanel: React.FC<SidePanelProps> = ({
             selectedRunIds={selectedRunIds}
             onSelectExperiment={onSelectExperiment}
             onCreateExperiment={onCreateExperiment}
+            onUpdateExperimentMetadata={onUpdateExperimentMetadata}
             onDeleteExperiment={onDeleteExperiment}
             onAssignRunToExperiment={onAssignRunToExperiment}
+            onUpdateRunMetadata={onUpdateRunMetadata}
             onToggleRunVisibility={onToggleRunVisibility}
             onToggleRunSelect={onToggleRunSelect}
           />
@@ -292,7 +314,51 @@ const SidePanel: React.FC<SidePanelProps> = ({
 
         {/* ── Stats tab ─────────────────────────────────────────────────────── */}
         <TabsContent value="stats" className="flex flex-col flex-1 min-h-0 overflow-y-auto mt-0">
-          <StatsPanel runs={runs} selectedRunIds={selectedRunIds} />
+          <div className="p-3 border-b border-gray-100 bg-gray-50">
+            <div className="flex items-center gap-1.5 text-[10px] text-gray-400 uppercase tracking-wide mb-2">
+              <Download className="h-3 w-3" />
+              Export
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-[10px]"
+                onClick={onExportSelectedRunSummary}
+                disabled={selectedRunIds.length === 0}
+              >
+                Run JSON
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-[10px]"
+                onClick={onExportSelectedExperimentSummary}
+                disabled={!selectedExperimentId}
+              >
+                Exp JSON
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-[10px]"
+                onClick={onExportAnomaliesJSON}
+                disabled={detectedAnomalyCount === 0}
+              >
+                Anom JSON
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-[10px]"
+                onClick={onExportAnomaliesCSV}
+                disabled={detectedAnomalyCount === 0}
+              >
+                Anom CSV
+              </Button>
+            </div>
+          </div>
+          <StatsPanel runs={runs} selectedRunIds={selectedRunIds} experiments={experiments} />
         </TabsContent>
       </Tabs>
     </aside>

@@ -1,7 +1,7 @@
 import { useRef, type FC, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Eye, EyeOff, Upload, Database, Trash2, CheckSquare, Square, Loader2, AlertCircle, CheckCircle2, FlaskConical } from "lucide-react";
+import { Eye, EyeOff, Upload, Database, Trash2, CheckSquare, Square, Loader2, AlertCircle, CheckCircle2, FlaskConical, PlayCircle } from "lucide-react";
 import { ExperimentRun, Experiment } from "@/lib/types";
 
 export type UploadState = "idle" | "uploading" | "processing" | "done" | "error";
@@ -14,6 +14,8 @@ interface RunsPanelProps {
   onLoadMockData: () => void;
   onUploadCSV: (file: File) => void;
   onDeleteRun: (id: string) => void;
+  onProcessRun?: (run: ExperimentRun) => void;
+  processingRunIds?: string[];
   uploadState?: UploadState;
   uploadError?: string;
   experiments?: Experiment[];
@@ -34,6 +36,7 @@ const RunsPanel: FC<RunsPanelProps> = ({
   runs, selectedRunIds,
   onToggleVisibility, onToggleSelect,
   onLoadMockData, onUploadCSV, onDeleteRun,
+  onProcessRun, processingRunIds = [],
   uploadState = "idle", uploadError,
   experiments = [], onAssignRunToExperiment, onCreateExperimentForRun,
 }) => {
@@ -131,6 +134,8 @@ const RunsPanel: FC<RunsPanelProps> = ({
         {runs.map((run) => {
           const isSelected = selectedRunIds.includes(run.id);
           const isBusy = run.id.startsWith("pending-");
+          const isProcessingRun = processingRunIds.includes(run.id);
+          const canProcessRun = run.mode === "live" || run.mode === "simulated";
           return (
             <div
               key={run.id}
@@ -176,6 +181,19 @@ const RunsPanel: FC<RunsPanelProps> = ({
                 <span className="font-mono truncate block">{run.runId}</span>
                 <span>{fmt(run.startTime)} · {duration(run)} · {run.points.length} pts</span>
                 {run.notes && <span className="block text-gray-400 truncate">{run.notes}</span>}
+                {onProcessRun && (
+                  <button
+                    className="mt-1 inline-flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-800 disabled:text-gray-400"
+                    onClick={() => onProcessRun(run)}
+                    disabled={isProcessingRun || !canProcessRun}
+                    title={canProcessRun ? "Process this run with the Python gravity pipeline" : "Only recorded telemetry runs can be processed here"}
+                  >
+                    {isProcessingRun
+                      ? <Loader2 className="h-3 w-3 animate-spin" />
+                      : <PlayCircle className="h-3 w-3" />}
+                    {isProcessingRun ? "Processing..." : "Process Run"}
+                  </button>
+                )}
 
                 {/* Experiment assignment (only when handler provided) */}
                 {onAssignRunToExperiment && (

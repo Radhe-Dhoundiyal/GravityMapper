@@ -33,14 +33,19 @@ export type AnomalyDataPoint = SensorDataPoint;
 // ─── Experiment run ────────────────────────────────────────────────────────────
 export type ExperimentType = 'E1' | 'E2' | 'E3' | 'E4' | 'E5' | 'E6' | 'CAL';
 export type RunMode = 'live' | 'simulated' | 'uploaded';
+export type ProcessingStatus = 'unprocessed' | 'processing' | 'processed' | 'failed';
 
 export interface ExperimentRun {
   id: string;           // internal UUID
   runId: string;        // human-readable, e.g. "2025-04-01_E1_lab-bench_run01"
-  experimentId: ExperimentType;
+  experimentId: ExperimentType | string;
   mode: RunMode;
   startTime: Date;
   endTime?: Date;
+  start_time?: Date;
+  end_time?: Date;
+  duration?: number;
+  processing_status?: ProcessingStatus;
   location: string;
   notes: string;
   points: SensorDataPoint[];
@@ -57,6 +62,11 @@ export interface Experiment {
   name: string;                            // display name
   experimentType: ExperimentType | string; // E1–E6, CAL, or custom string
   description: string;
+  location: string;
+  operator: string;
+  grid_spacing: string;
+  sensor_configuration: string;
+  notes: string;
   createdAt: Date;
   // NB: runs are NOT stored here. Membership is derived from
   // ExperimentRun.parentExperimentId — keeps a single source of truth.
@@ -99,6 +109,37 @@ export interface AnomalyFilters {
 export type ConnectionStatus = 'disconnected' | 'connected' | 'simulation';
 export type WebSocketStatus = 'connected' | 'disconnected' | 'reconnecting';
 export type MapColorMode = 'anomaly' | 'run';
+export type MapViewMode = 'points' | 'heatmap' | 'gradient' | 'anomalies';
+
+export interface AnomalyRegion {
+  id: string;
+  type: 'positive' | 'negative';
+  centerLat: number;
+  centerLng: number;
+  peakAnomalyValue: number;
+  areaSqMeters: number;
+  pointDensity: number;
+  confidence: number;
+  cellCount: number;
+}
+
+export interface SurveyGridPoint {
+  id: string;
+  row: number;
+  column: number;
+  lat: number;
+  lng: number;
+}
+
+export interface SurveyGrid {
+  grid_id: string;
+  origin: { lat: number; lng: number };
+  rows: number;
+  columns: number;
+  spacing_meters: number;
+  tolerance_meters: number;
+  points: SurveyGridPoint[];
+}
 
 export interface WebSocketMessage {
   type: string;

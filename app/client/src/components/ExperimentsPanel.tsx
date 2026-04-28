@@ -20,8 +20,10 @@ interface ExperimentsPanelProps {
   selectedRunIds:        string[];
   onSelectExperiment:    (id: string | null) => void;
   onCreateExperiment:    (data: { name: string; experimentType: string; description: string }) => void;
+  onUpdateExperimentMetadata: (id: string, metadata: Pick<Experiment, 'location' | 'operator' | 'description' | 'grid_spacing' | 'sensor_configuration' | 'notes'>) => void;
   onDeleteExperiment:    (id: string) => void;
   onAssignRunToExperiment: (runId: string, experimentId: string | null) => void;
+  onUpdateRunMetadata: (id: string, metadata: Pick<ExperimentRun, 'location' | 'notes' | 'processing_status'>) => void;
   onToggleRunVisibility: (id: string) => void;
   onToggleRunSelect:     (id: string) => void;
 }
@@ -30,8 +32,8 @@ const EXP_TYPES: (ExperimentType | 'Custom')[] = ['E1', 'E2', 'E3', 'E4', 'E5', 
 
 const ExperimentsPanel: FC<ExperimentsPanelProps> = ({
   experiments, runs, selectedExperimentId, selectedRunIds,
-  onSelectExperiment, onCreateExperiment, onDeleteExperiment,
-  onAssignRunToExperiment, onToggleRunVisibility, onToggleRunSelect,
+  onSelectExperiment, onCreateExperiment, onUpdateExperimentMetadata, onDeleteExperiment,
+  onAssignRunToExperiment, onUpdateRunMetadata, onToggleRunVisibility, onToggleRunSelect,
 }) => {
   const [showForm, setShowForm]      = useState(false);
   const [formName, setFormName]      = useState('');
@@ -132,6 +134,65 @@ const ExperimentsPanel: FC<ExperimentsPanelProps> = ({
           </div>
         </div>
 
+        {/* Experiment details */}
+        <div className="px-3 py-2 border-b border-gray-100 space-y-2">
+          <div className="text-[10px] text-gray-400 uppercase tracking-wide">Experiment details</div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-[10px] text-gray-500">Location</Label>
+              <Input
+                value={selected.location}
+                onChange={e => onUpdateExperimentMetadata(selected.id, { ...selected, location: e.target.value })}
+                className="text-xs h-7 mt-0.5"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] text-gray-500">Operator</Label>
+              <Input
+                value={selected.operator}
+                onChange={e => onUpdateExperimentMetadata(selected.id, { ...selected, operator: e.target.value })}
+                className="text-xs h-7 mt-0.5"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] text-gray-500">Grid spacing</Label>
+              <Input
+                value={selected.grid_spacing}
+                onChange={e => onUpdateExperimentMetadata(selected.id, { ...selected, grid_spacing: e.target.value })}
+                placeholder="e.g. 10 m"
+                className="text-xs h-7 mt-0.5"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] text-gray-500">Sensor config</Label>
+              <Input
+                value={selected.sensor_configuration}
+                onChange={e => onUpdateExperimentMetadata(selected.id, { ...selected, sensor_configuration: e.target.value })}
+                placeholder="e.g. MPU6050 + BMP280"
+                className="text-xs h-7 mt-0.5"
+              />
+            </div>
+          </div>
+          <div>
+            <Label className="text-[10px] text-gray-500">Description</Label>
+            <Textarea
+              value={selected.description}
+              onChange={e => onUpdateExperimentMetadata(selected.id, { ...selected, description: e.target.value })}
+              className="text-xs min-h-[44px] mt-0.5"
+              rows={2}
+            />
+          </div>
+          <div>
+            <Label className="text-[10px] text-gray-500">Notes</Label>
+            <Textarea
+              value={selected.notes}
+              onChange={e => onUpdateExperimentMetadata(selected.id, { ...selected, notes: e.target.value })}
+              className="text-xs min-h-[44px] mt-0.5"
+              rows={2}
+            />
+          </div>
+        </div>
+
         {/* Member runs */}
         <div className="px-3 py-1.5 text-[10px] text-gray-400 uppercase tracking-wide border-b border-gray-100">
           Runs in this experiment ({expRuns.length})
@@ -180,6 +241,45 @@ const ExperimentsPanel: FC<ExperimentsPanelProps> = ({
                 </div>
                 <div className="text-[10px] text-gray-500 pl-7">
                   {run.points.length} pts · {run.experimentId}
+                </div>
+                <div className="grid grid-cols-2 gap-1.5 pl-7 mt-1.5">
+                  <Input
+                    value={run.location}
+                    onChange={e => onUpdateRunMetadata(run.id, {
+                      location: e.target.value,
+                      notes: run.notes,
+                      processing_status: run.processing_status || 'unprocessed',
+                    })}
+                    className="text-[10px] h-6"
+                    title="Run location"
+                  />
+                  <Select
+                    value={run.processing_status || 'unprocessed'}
+                    onValueChange={(value) => onUpdateRunMetadata(run.id, {
+                      location: run.location,
+                      notes: run.notes,
+                      processing_status: value as ExperimentRun['processing_status'],
+                    })}
+                  >
+                    <SelectTrigger className="text-[10px] h-6"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unprocessed" className="text-xs">unprocessed</SelectItem>
+                      <SelectItem value="processing" className="text-xs">processing</SelectItem>
+                      <SelectItem value="processed" className="text-xs">processed</SelectItem>
+                      <SelectItem value="failed" className="text-xs">failed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Textarea
+                    value={run.notes}
+                    onChange={e => onUpdateRunMetadata(run.id, {
+                      location: run.location,
+                      notes: e.target.value,
+                      processing_status: run.processing_status || 'unprocessed',
+                    })}
+                    className="text-[10px] min-h-[36px] col-span-2"
+                    rows={2}
+                    title="Run notes"
+                  />
                 </div>
               </div>
             );

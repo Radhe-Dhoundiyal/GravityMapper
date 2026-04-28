@@ -11,6 +11,17 @@ This file documents the local development and deployment environment expected by
 
 Use `npm.cmd` from PowerShell if `npm` is blocked by PowerShell execution policy.
 
+Python notes:
+
+- The default shell may not have `python` on PATH.
+- A known local interpreter used during verification was:
+
+```text
+C:\Users\Radhe\AppData\Local\Programs\Python\Python312\python.exe
+```
+
+- Python processing requires the runtime dependencies used by `analysis/scripts/gravity_pipeline.py`, especially numpy and pandas.
+
 ## Build System
 
 - Frontend: Vite build -> `dist/public`
@@ -42,6 +53,12 @@ Important: the root `npm run dev` script currently points to `server/index.ts`, 
 NODE_ENV=development tsx app/server/index.ts
 ```
 
+On Windows PowerShell:
+
+```powershell
+$env:NODE_ENV='development'; npx tsx app/server/index.ts
+```
+
 ## Deployment
 
 - Hosting platform: Render
@@ -66,6 +83,14 @@ Render deployment should produce and serve:
 - Backend entrypoint from `dist/index.js`
 
 The Express process serves `/api/*`, `/ws`, and the built frontend from the same Node process.
+
+Health check path:
+
+```text
+/api/health
+```
+
+Note: JSON run files under `data/runs` and processed outputs under `data/processed` are filesystem-based. Local restarts preserve them, but Render free-tier filesystems may not be durable across instance replacement unless persistent disk storage is configured.
 
 ## Local Development Workflow
 
@@ -97,6 +122,16 @@ On Windows PowerShell, prefix environment variables with `$env:` when running ma
 
 ```powershell
 $env:NODE_ENV='development'; npx tsx app/server/index.ts
+```
+
+Useful local checks:
+
+```bash
+npm run build
+```
+
+```powershell
+& 'C:\Users\Radhe\AppData\Local\Programs\Python\Python312\python.exe' -m py_compile analysis\scripts\gravity_pipeline.py
 ```
 
 ## Verification Workflow
@@ -135,3 +170,18 @@ http://localhost:5000/
 ```
 
 Known caveat: local Windows production start may fail with `listen ENOTSUP 0.0.0.0:<port>` because of the current server listen configuration. If that occurs, do not treat it as a Render failure without testing on a Linux-like environment or Render itself.
+
+For Python pipeline work:
+
+- Verify syntax with `py_compile` when possible.
+- Full pipeline verification requires a valid raw CSV or stored JSON run, plus numpy/pandas availability.
+- Stored-run processing route is `POST /api/process-run` and expects:
+
+```json
+{
+  "experiment_id": "...",
+  "run_id": "..."
+}
+```
+
+Do not claim `/api/process-run` end-to-end success without running it against a real stored run or receiving user confirmation.

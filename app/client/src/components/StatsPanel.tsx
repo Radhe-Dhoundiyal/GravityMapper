@@ -1,5 +1,5 @@
 import type { FC } from "react";
-import { ExperimentRun, SensorDataPoint } from "@/lib/types";
+import { Experiment, ExperimentRun, SensorDataPoint } from "@/lib/types";
 import { computeRunStats, formatDuration, fmtNum } from "@/lib/runStatistics";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -8,6 +8,7 @@ import { Activity, Thermometer, Gauge, Navigation, Signal, FileText, Database, R
 interface StatsPanelProps {
   runs: ExperimentRun[];
   selectedRunIds: string[];
+  experiments: Experiment[];
 }
 
 const sourceMeta: Record<string, { label: string; icon: any; cls: string }> = {
@@ -25,7 +26,7 @@ function lastSensorValues(points: SensorDataPoint[]): SensorDataPoint | null {
   return points[points.length - 1] ?? null;
 }
 
-const StatsPanel: FC<StatsPanelProps> = ({ runs, selectedRunIds }) => {
+const StatsPanel: FC<StatsPanelProps> = ({ runs, selectedRunIds, experiments }) => {
   const selected = runs.filter(r => selectedRunIds.includes(r.id));
 
   if (selected.length === 0) {
@@ -41,6 +42,9 @@ const StatsPanel: FC<StatsPanelProps> = ({ runs, selectedRunIds }) => {
       {selected.map(run => {
         const stats = computeRunStats(run);
         const last  = lastSensorValues(run.points);
+        const experiment = run.parentExperimentId
+          ? experiments.find(exp => exp.id === run.parentExperimentId)
+          : experiments.find(exp => exp.experimentId === run.experimentId);
         if (!stats) {
           return (
             <div key={run.id} className="p-3 text-xs text-gray-400 text-center">
@@ -75,6 +79,55 @@ const StatsPanel: FC<StatsPanelProps> = ({ runs, selectedRunIds }) => {
 
             {/* ── Anomaly metrics grid ────────────────────────────────────────── */}
             <div className="px-3 py-2 space-y-2">
+              {experiment && (
+                <>
+                  <div className="text-[10px] text-gray-400 uppercase tracking-wide">Experiment metadata</div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[
+                      { label: 'Location', value: experiment.location },
+                      { label: 'Operator', value: experiment.operator },
+                      { label: 'Grid spacing', value: experiment.grid_spacing },
+                      { label: 'Sensor config', value: experiment.sensor_configuration },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="bg-gray-50 rounded p-1.5">
+                        <div className="text-[9px] text-gray-400 uppercase tracking-wide">{label}</div>
+                        <div className="text-xs font-mono font-medium text-gray-800 mt-0.5 truncate">{value || '-'}</div>
+                      </div>
+                    ))}
+                    {(experiment.description || experiment.notes) && (
+                      <div className="bg-gray-50 rounded p-1.5 col-span-2">
+                        <div className="text-[9px] text-gray-400 uppercase tracking-wide">Description / notes</div>
+                        <div className="text-[10px] text-gray-700 mt-0.5">
+                          {[experiment.description, experiment.notes].filter(Boolean).join(' | ')}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <Separator className="my-1" />
+                </>
+              )}
+              <div className="text-[10px] text-gray-400 uppercase tracking-wide">Run metadata</div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {[
+                  { label: 'Location', value: run.location },
+                  { label: 'Processing', value: run.processing_status || 'unprocessed' },
+                  { label: 'Start', value: run.startTime?.toLocaleString() },
+                  { label: 'End', value: run.endTime?.toLocaleString() || '-' },
+                ].map(({ label, value }) => (
+                  <div key={label} className="bg-gray-50 rounded p-1.5">
+                    <div className="text-[9px] text-gray-400 uppercase tracking-wide">{label}</div>
+                    <div className="text-xs font-mono font-medium text-gray-800 mt-0.5 truncate">{value || '-'}</div>
+                  </div>
+                ))}
+                {run.notes && (
+                  <div className="bg-gray-50 rounded p-1.5 col-span-2">
+                    <div className="text-[9px] text-gray-400 uppercase tracking-wide">Run notes</div>
+                    <div className="text-[10px] text-gray-700 mt-0.5">{run.notes}</div>
+                  </div>
+                )}
+              </div>
+              <Separator className="my-1" />
+
               <div className="text-[10px] text-gray-400 uppercase tracking-wide">Anomaly statistics (mGal)</div>
               <div className="grid grid-cols-2 gap-1.5">
                 {[

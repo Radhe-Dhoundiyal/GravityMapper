@@ -5,8 +5,10 @@ import multer from "multer";
 import * as fs from "fs";
 import * as path from "path";
 import { storage } from "./storage";
+import { runStorage } from "./runStorage";
 import { insertAnomalyPointSchema, sensorDataPointSchema } from "@shared/schema";
 import { processUploadedFile, NoPythonError } from "./csvProcessor";
+import { processStoredRun } from "./runProcessor";
 import { z } from "zod";
 
 const UPLOADS_DIR = path.join(process.cwd(), "uploads");
@@ -82,6 +84,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 anomalyValue: String(rich.anomalyValue),
                 timestamp:    rich.timestamp,
               }).catch((e) => console.warn("[ws] legacy persist failed:", e?.message ?? e));
+              await runStorage.appendTelemetryPoint(rich)
+                .catch((e) => console.warn("[ws] run persist failed:", e?.message ?? e));
 
               // ── Broadcast the FULL rich point to every client unchanged.
               //    This is the same path future ESP32 packets will follow.
@@ -148,6 +152,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         anomalyValue: String(rich.anomalyValue),
         timestamp:    rich.timestamp,
       }).catch((e) => console.warn("[http] legacy persist failed:", e?.message ?? e));
+      await runStorage.appendTelemetryPoint(rich)
+        .catch((e) => console.warn("[http] run persist failed:", e?.message ?? e));
 
       broadcastToAll({ type: "newAnomalyPoint", data: rich });
 
@@ -164,6 +170,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── REST: anomaly points (legacy) ─────────────────────────────────────────
+  app.get("/api/runs", (_req, res) => {
+    res.json(runStorage.listRuns());
+  });
+
+  app.patch("/api/runs/:experimentId/:runId/metadata", async (req, res) => {
+    try {
+      const schema = z.object({
+        location: z.string().optional(),
+        notes: z.string().optional(),
+        start_time: z.string().optional(),
+        end_time: z.string().optional(),
+        duration: z.number().optional(),
+        processing_status: z.enum(["unprocessed", "processing", "processed", "failed"]).optional(),
+      });
+      const run = await runStorage.updateRunMetadata(
+        req.params.experimentId,
+        req.params.runId,
+        schema.parse(req.body ?? {}),
+      );
+      res.json(run);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid request", details: err.errors });
+      } else {
+        res.status(404).json({ message: err?.message ?? "Stored run not found" });
+      }
+    }
+  });
+
+  app.patch("/api/experiments/:experimentId/metadata", async (req, res) => {
+    try {
+      const schema = z.object({
+        location: z.string().optional(),
+        operator: z.string().optional(),
+        description: z.string().optional(),
+        grid_spacing: z.string().optional(),
+        sensor_configuration: z.string().optional(),
+        notes: z.string().optional(),
+      });
+      const runs = await runStorage.updateExperimentMetadata(
+        req.params.experimentId,
+        schema.parse(req.body ?? {}),
+      );
+      res.json({ updated_runs: runs.length, runs });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid request", details: err.errors });
+      } else {
+        res.status(500).json({ message: err?.message ?? "Failed to update experiment metadata" });
+      }
+    }
+  });
+
+  app.post("/api/process-run", async (req, res) => {
+    try {
+      const schema = z.object({
+        experiment_id: z.string().min(1),
+        run_id: z.string().min(1),
+      });
+      const { experiment_id, run_id } = schema.parse(req.body ?? {});
+      const result = await processStoredRun(experiment_id, run_id);
+      res.json(result);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid request", details: err.errors });
+      } else {
+        console.error("[process-run] error:", err);
+        res.status(500).json({ message: err?.message ?? "Failed to process run" });
+      }
+    }
+  });
+
   app.get("/api/anomaly-points", async (_req, res) => {
     try {
       res.json(await storage.getAllAnomalyPoints());
