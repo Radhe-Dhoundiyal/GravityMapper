@@ -7,9 +7,9 @@ This file is a quick architecture handoff for future AI coding sessions working 
 GADV, the Gravitational Anomaly Detection Vehicle, is a research and science-fair platform for mapping local gravity-proxy anomalies using low-cost hardware. The intended system combines:
 
 - ESP32-based rover telemetry with IMU, barometer, GNSS, temperature, distance, and optional battery inputs.
-- A real-time web dashboard for map-based telemetry visualization, recording, analysis, and survey planning.
+- A real-time web dashboard for map-based telemetry visualization, recording, analysis, anomaly detection, and survey planning.
 - CSV import/export for field runs.
-- JSON-backed run persistence for live telemetry runs.
+- JSON-backed run persistence for live telemetry runs and experiment/run metadata.
 - A Python analysis pipeline that converts raw rover logs into processed anomaly estimates and run summaries.
 
 The central scientific question is whether consumer-grade MEMS sensors can produce repeatable, geo-referenced gravity anomaly signals after filtering, tilt compensation, altitude correction, and statistical cleanup.
@@ -72,14 +72,17 @@ The frontend is a React single-page app built with Vite. It uses:
 
 - Live telemetry state.
 - Run and experiment state.
+- Experiment/run metadata editing state.
 - Simulation mode.
 - CSV upload handling.
 - Saved run loading from `/api/runs`.
 - Run processing requests through `/api/process-run`.
-- Map filters, point/heatmap view mode, and anomaly/run color modes.
+- Map filters, point/heatmap/gradient/anomaly view modes, and anomaly/run color modes.
 - Survey grid planning state, origin selection, visited-node highlighting, and grid export.
-- Export to CSV/JSON.
+- Detected anomaly region state and summary export.
+- Export to CSV/JSON for visible points, run summaries, experiment summaries, and detected anomalies.
 - WebSocket telemetry ingestion and recording state.
+- A compact system status checklist for demo readiness.
 
 Real-time communication is handled by `app/client/src/lib/useWebSocket.ts`. The hook auto-connects on page load to the current host:
 
@@ -113,6 +116,10 @@ Map features now include:
 
 - Point/trail rendering with anomaly or run coloring.
 - IDW-interpolated anomaly heatmap overlay using existing telemetry points.
+- Gradient visualization computed from the interpolated grid with finite differences.
+- Automatic anomaly-region detection from the interpolated grid using mean +/- 2 standard deviations.
+- Positive and negative anomaly regions rendered as red/blue circles.
+- Per-region confidence scoring using normalized peak anomaly, area, and nearby measurement density.
 - Survey grid generation from a clicked origin, row/column count, and meter spacing.
 - Grid node status highlighting: green for visited, gray for unvisited.
 
@@ -142,6 +149,8 @@ Important REST routes:
 GET    /api/health
 POST   /api/telemetry
 GET    /api/runs
+PATCH  /api/runs/:experimentId/:runId/metadata
+PATCH  /api/experiments/:experimentId/metadata
 POST   /api/process-run
 GET    /api/anomaly-points
 POST   /api/anomaly-points
@@ -173,11 +182,26 @@ with structure:
   "run_id": "...",
   "device_id": "...",
   "start_time": "...",
+  "end_time": "...",
+  "duration": 0,
+  "processing_status": "unprocessed",
+  "run_metadata": {
+    "location": "...",
+    "notes": "..."
+  },
+  "experiment_metadata": {
+    "location": "...",
+    "operator": "...",
+    "description": "...",
+    "grid_spacing": "...",
+    "sensor_configuration": "...",
+    "notes": "..."
+  },
   "points": []
 }
 ```
 
-The run store loads existing files on server startup and writes via temp-file plus rename to avoid corrupting JSON files mid-write.
+The run store loads existing files on server startup and writes via temp-file plus rename to avoid corrupting JSON files mid-write. Experiment metadata is stored with each run file for that experiment because JSON run files are currently the only durable runtime storage layer.
 
 `/api/process-run` accepts:
 
@@ -213,6 +237,8 @@ They define:
 - `run_id`
 
 It also accepts optional IMU, barometer, GPS quality, smoothed anomaly, and stationary fields. Drizzle and Zod are both present. The runtime app currently uses Zod schemas, in-memory legacy anomaly storage, and JSON files for runs. PostgreSQL is not wired into the live server yet.
+
+Frontend-only domain types live in `app/client/src/lib/types.ts`, including `MapViewMode`, `AnomalyRegion`, `SurveyGrid`, experiment metadata fields, and run processing status.
 
 ## Analysis Pipeline
 
@@ -290,7 +316,7 @@ The intended live data flow is:
 2. It computes or forwards a temporary live anomaly proxy.
 3. It sends telemetry to the web dashboard via HTTP POST `/api/telemetry`; WebSocket `/ws` remains supported for simulated/browser clients.
 4. The backend validates, persists, and broadcasts packets.
-5. The frontend renders points, heatmaps, survey grid coverage, and records runs.
+5. The frontend renders points, heatmaps, gradients, anomaly detections, survey grid coverage, and records runs.
 
 Note: Some older docs still show message type `anomalyData`; the current server/frontend/firmware implementation expects `newAnomalyPoint`.
 
@@ -412,7 +438,7 @@ Current `.env` usage is minimal. The app does not currently load a database conn
 
 - Legacy `/api/anomaly-points` history is still volatile because it uses `MemStorage`.
 - JSON run persistence survives local server restarts but may not survive Render free-tier instance replacement because Render filesystem persistence is ephemeral unless a disk is configured.
-- Experiments mostly live in frontend React state; run assignment metadata is not fully durable across sessions.
+- Experiments and assignments are still primarily frontend state. Experiment metadata can be persisted into existing run JSON files only after there is at least one stored run for that experiment.
 - PostgreSQL/Drizzle is partially scaffolded but not integrated into the runtime backend.
 - `drizzle.config.ts` appears to reference `./shared/schema.ts`, but the actual schema is `app/shared/schema.ts`.
 - Root `npm run dev` still references `server/index.ts`, while the real server path is `app/server/index.ts`.
@@ -423,49 +449,53 @@ Current `.env` usage is minimal. The app does not currently load a database conn
 - Some markdown/doc text appears to have character encoding artifacts in terminal output.
 - WebSocket and HTTP telemetry ingestion are unauthenticated and accept any client that can reach the service.
 - Uploaded files are temporarily written to `uploads/`; this directory is created at runtime and cleaned after each upload, but there is no persistent upload audit trail.
-- `npm run check` has historically failed on pre-existing type issues: missing Leaflet typings, a `MapView.tsx` narrowing issue, and `app/server/vite.ts` typing for `allowedHosts`.
 - Local production smoke start on Windows may fail with `listen ENOTSUP 0.0.0.0:<port>` because of the server listen configuration. Render/Linux remains the intended production environment.
-- Heatmap interpolation is intentionally lightweight and approximate; it is for visualization, not scientific interpolation.
+- Heatmap, gradient, and anomaly-region interpolation are intentionally lightweight and approximate; they are for visualization and demo analysis, not scientific-grade geostatistics.
+- Anomaly confidence scoring is a relative dashboard score normalized across currently detected regions, not an externally validated probability.
 - Survey grid spacing uses approximate Earth conversions and is best suited for small local survey areas.
 
 ## Future Extensions
 
 - Replace `MemStorage` and JSON run files with real PostgreSQL-backed storage using the existing Drizzle schema.
-- Add durable models for experiments, runs, telemetry packets, uploaded files, survey grids, and processed outputs.
+- Add durable models for experiments, runs, telemetry packets, uploaded files, survey grids, anomaly detections, and processed outputs.
 - Align all docs and hardware examples with the implemented `newAnomalyPoint` packet shape.
 - Fix root `npm run dev` so local development uses `app/server/index.ts`.
 - Add a Render-compatible Python setup if raw CSV or stored-run processing is expected in production.
 - Consolidate CSV parsing into one shared server-side pathway.
 - Add authentication or device tokens for ESP32 telemetry ingestion.
 - Add SD-card/offline-log import guidance for field hardware.
-- Add automated tests for schema validation, CSV upload behavior, WebSocket broadcasting, JSON run persistence, `/api/process-run`, heatmap generation, survey grid generation, and the Python pipeline.
+- Add automated tests for schema validation, CSV upload behavior, WebSocket broadcasting, JSON run persistence, `/api/process-run`, heatmap generation, gradient generation, anomaly detection, confidence scoring, survey grid generation, and the Python pipeline.
 - Add deployment checks that verify both Node build artifacts and Python pipeline availability.
 - Replace `client.setInsecure()` in firmware with certificate validation before field deployment.
 
 ## Recently Modified Files
 
-Recent work before this handover expanded the dashboard from live telemetry visualization into a fuller field workflow with persistent runs, processing, heatmaps, survey planning, and firmware examples.
+Recent work expanded the dashboard from live telemetry visualization into a fuller field workflow with persistent runs, processing, map analysis modes, anomaly detection, exports, metadata editing, and firmware examples.
 
 Known recent modifications:
 
-- `app/shared/schema.ts`: `sensorDataPointSchema` now accepts optional `device_id`, `experiment_id`, and `run_id`.
-- `app/client/src/lib/types.ts`: Adds telemetry identity fields, `WebSocketStatus`, `MapViewMode`, and survey grid types; `ExperimentRun.experimentId` can be a custom string.
+- `app/shared/schema.ts`: `sensorDataPointSchema` accepts optional `device_id`, `experiment_id`, and `run_id`.
+- `app/client/src/lib/types.ts`: Adds telemetry identity fields, experiment metadata fields, run processing fields, `WebSocketStatus`, `MapViewMode`, `SurveyGrid`, and `AnomalyRegion`; `ExperimentRun.experimentId` can be a custom string.
 - `app/client/src/lib/useWebSocket.ts`: Auto-connects to current host `/ws`, tracks `connected`/`disconnected`/`reconnecting`, reconnects every 5 seconds, and logs dev diagnostics with `[WS]`.
+- `app/client/src/types/leaflet.d.ts`: Adds a local Leaflet module declaration so TypeScript can check the project without adding a dependency.
 - `app/client/src/components/AppHeader.tsx`: Shows WebSocket status and last telemetry age.
 - `app/client/src/components/TelemetryPanel.tsx`: Shows Device, Experiment, and Run metadata with clean fallbacks.
-- `app/client/src/components/MapView.tsx`: Adds IDW heatmap rendering, point/heatmap view support, survey grid origin picking, grid markers, and visited/unvisited highlighting.
+- `app/client/src/components/MapView.tsx`: Adds IDW heatmap rendering, gradient rendering, anomaly-region detection, confidence scoring, point/heatmap/gradient/anomalies view support, survey grid origin picking, grid markers, and visited/unvisited highlighting.
 - `app/client/src/components/RunsPanel.tsx`: Adds per-run `Process Run` control with processing spinner.
-- `app/client/src/components/SidePanel.tsx`: Passes run processing callbacks into the Runs panel.
-- `app/client/src/pages/Home.tsx`: Loads saved runs from `/api/runs`, processes runs through `/api/process-run`, manages point/heatmap view state, survey grid planning/export, and simulation metadata.
-- `app/server/routes.ts`: Adds run persistence to WebSocket and HTTP telemetry ingestion, `GET /api/runs`, and `POST /api/process-run`.
-- `app/server/runStorage.ts`: Adds JSON-backed run storage in `data/runs/<experiment_id>/<run_id>.json`.
+- `app/client/src/components/ExperimentsPanel.tsx`: Adds Experiment Details metadata editing and run metadata controls.
+- `app/client/src/components/StatsPanel.tsx`: Displays experiment metadata, run metadata, anomaly statistics, quality metrics, and latest sensor values for selected runs.
+- `app/client/src/components/SidePanel.tsx`: Passes run processing and metadata callbacks, adds Stats-tab export controls, and wires anomaly export actions.
+- `app/client/src/pages/Home.tsx`: Loads saved runs from `/api/runs`, processes runs through `/api/process-run`, manages point/heatmap/gradient/anomaly modes, stores detected anomaly regions, manages survey grid planning/export, handles metadata updates, provides system status checklist, and exports run summaries, experiment summaries, anomaly JSON, and anomaly CSV.
+- `app/server/routes.ts`: Adds run persistence to WebSocket and HTTP telemetry ingestion, `GET /api/runs`, metadata PATCH routes, and `POST /api/process-run`.
+- `app/server/runStorage.ts`: Adds JSON-backed run storage in `data/runs/<experiment_id>/<run_id>.json`, including run metadata, experiment metadata, duration, end time, and processing status.
 - `app/server/runProcessor.ts`: Converts stored JSON runs to raw CSV, invokes `gravity_pipeline.py`, stores processed output, and returns processed points/summary.
+- `app/server/vite.ts`: Tightens the Vite `allowedHosts` typing with `true as const`.
 - `data/runs/.gitkeep`: Keeps JSON run storage directory in the repository.
 - `hardware/esp32/gadv_rover_v1/gadv_rover_v1.ino`: Adds first ESP32-S3 rover telemetry firmware sketch.
 - `hardware/esp32/gadv_rover_v1/README.md`: Documents board, libraries, pins, setup, and temporary live anomaly proxy warning.
 - `hardware/esp32/wokwi_telemetry_test/wokwi_telemetry_test.ino`: Adds Wokwi ESP32 HTTPS telemetry simulator.
 - `hardware/esp32/wokwi_telemetry_test/README.md`: Documents Wokwi setup and `broadcast:1` verification.
-- `RENDER_DEPLOYMENT.md`: Sample telemetry payload now includes identity metadata.
+- `RENDER_DEPLOYMENT.md`: Sample telemetry payload includes identity metadata.
 - `render.yaml`: Uses `npm ci --include=dev`, `npm run build`, and `npm run start`.
 - `package.json`: `build` uses `app/server/index.ts`; `start` uses `dist/index.js`; `dev` still needs correction.
 - `.replit`: Removed in prior cleanup.
@@ -475,7 +505,9 @@ Known recent modifications:
 
 Last confirmed verification status:
 
-- `npm.cmd run build` passed after the `/api/process-run` integration, heatmap, survey grid, JSON run storage, and firmware documentation work.
-- `gravity_pipeline.py` syntax was verified with the local Python 3.12 interpreter after sandbox escalation.
+- `npm.cmd run check` passed after local Leaflet typing, `MapView.tsx` narrowing cleanup, and `app/server/vite.ts` allowed-host typing cleanup.
+- `npm.cmd run build` passed after metadata, heatmap, gradient, anomaly detection, confidence scoring, export, and system-status work.
+- Build warnings remain non-blocking: large frontend chunk size and outdated Browserslist/caniuse-lite data.
+- `gravity_pipeline.py` syntax was previously verified with the local Python 3.12 interpreter after sandbox escalation.
 - `python` was not available on PATH in the default shell; the known local interpreter path was `C:\Users\Radhe\AppData\Local\Programs\Python\Python312\python.exe`.
 - No full end-to-end `/api/process-run` runtime job was completed against a real stored run in the last session.

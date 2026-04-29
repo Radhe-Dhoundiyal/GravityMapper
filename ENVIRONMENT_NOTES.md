@@ -33,6 +33,7 @@ Current package scripts:
 ```bash
 npm run build
 npm run start
+npm run check
 ```
 
 `npm run build` runs:
@@ -45,6 +46,12 @@ vite build && esbuild app/server/index.ts --platform=node --packages=external --
 
 ```bash
 NODE_ENV=production node dist/index.js
+```
+
+`npm run check` runs:
+
+```bash
+tsc
 ```
 
 Important: the root `npm run dev` script currently points to `server/index.ts`, which does not match the current repo layout. For development, use:
@@ -127,6 +134,7 @@ $env:NODE_ENV='development'; npx tsx app/server/index.ts
 Useful local checks:
 
 ```bash
+npm run check
 npm run build
 ```
 
@@ -136,7 +144,7 @@ npm run build
 
 ## Verification Workflow
 
-- Codex may not be able to run full builds in its sandbox because Vite/esbuild needs to spawn subprocesses.
+- Codex may not be able to run full builds in its sandbox because Vite/esbuild can need subprocess execution.
 - If sandboxed build execution fails with a spawn or permission error, rerun with the appropriate tool escalation if permitted.
 - If runtime verification cannot be executed, request manual verification from the user.
 - Do not claim runtime verification passed without either:
@@ -146,6 +154,7 @@ npm run build
 Suggested verification sequence:
 
 ```bash
+npm run check
 npm run build
 ```
 
@@ -185,3 +194,12 @@ For Python pipeline work:
 ```
 
 Do not claim `/api/process-run` end-to-end success without running it against a real stored run or receiving user confirmation.
+
+Most recent confirmed checks in this environment:
+
+```bash
+npm.cmd run check
+npm.cmd run build
+```
+
+Both passed after the final dashboard export/status/type-cleanup work. Build warnings about large frontend chunks and outdated Browserslist data are non-blocking.
