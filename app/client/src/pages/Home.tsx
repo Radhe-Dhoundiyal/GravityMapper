@@ -141,6 +141,200 @@ function anomalyExportRows(regions: AnomalyRegion[]) {
   }));
 }
 
+function reportTimestamp(date = new Date()): string {
+  return date.toISOString().replace(/[:.]/g, '-');
+}
+
+function reportValue(value: unknown): string {
+  if (value == null || value === '') return 'Not specified';
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? 'Not specified' : value.toISOString();
+  if (typeof value === 'number') return Number.isFinite(value) ? value.toFixed(3) : 'Not available';
+  return String(value);
+}
+
+function reportNumber(value: number | null | undefined, digits = 3): string {
+  return value == null || !Number.isFinite(value) ? 'Not available' : value.toFixed(digits);
+}
+
+function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const metersPerDegreeLng = EARTH_METERS_PER_DEGREE_LAT * Math.max(0.1, Math.cos(a.lat * Math.PI / 180));
+  const dx = (a.lng - b.lng) * metersPerDegreeLng;
+  const dy = (a.lat - b.lat) * EARTH_METERS_PER_DEGREE_LAT;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function processingStatusSummary(reportRuns: ExperimentRun[]): string {
+  if (reportRuns.length === 0) return 'No runs selected';
+  const counts = reportRuns.reduce<Record<string, number>>((acc, run) => {
+    const status = run.processing_status || 'unprocessed';
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, {});
+  return Object.entries(counts).map(([status, count]) => `${status}: ${count}`).join(', ');
+}
+
+function surveyGridSummary(surveyGrid: SurveyGrid | null, reportRuns: ExperimentRun[]): string[] {
+  if (!surveyGrid) return ['No survey grid is currently available.'];
+  const points = reportRuns.flatMap(run => run.points);
+  const visited = surveyGrid.points.filter(node =>
+    points.some(point => distanceMeters({ lat: node.lat, lng: node.lng }, { lat: point.latitude, lng: point.longitude }) <= surveyGrid.tolerance_meters)
+  ).length;
+  const coverage = surveyGrid.points.length > 0 ? (visited / surveyGrid.points.length) * 100 : 0;
+
+  return [
+    `- Grid ID: ${surveyGrid.grid_id}`,
+    `- Origin: ${reportNumber(surveyGrid.origin.lat, 6)}, ${reportNumber(surveyGrid.origin.lng, 6)}`,
+    `- Dimensions: ${surveyGrid.rows} rows x ${surveyGrid.columns} columns`,
+    `- Spacing: ${reportNumber(surveyGrid.spacing_meters, 1)} meters`,
+    `- Tolerance: ${reportNumber(surveyGrid.tolerance_meters, 1)} meters`,
+    `- Nodes covered by selected data: ${visited} / ${surveyGrid.points.length} (${reportNumber(coverage, 1)}%)`,
+  ];
+}
+
+function buildMarkdownReport(args: {
+  generatedAt: Date;
+  experiment: Experiment | null;
+  reportRuns: ExperimentRun[];
+  anomalyRegions: AnomalyRegion[];
+  surveyGrid: SurveyGrid | null;
+}): string {
+  const { generatedAt, experiment, reportRuns, anomalyRegions, surveyGrid } = args;
+  const title = experiment
+    ? `GADV Experiment Report: ${experiment.name || experiment.experimentId}`
+    : `GADV Run Report: ${reportRuns.map(run => run.runId).join(', ')}`;
+  const totalSamples = reportRuns.reduce((sum, run) => sum + run.points.length, 0);
+  const runStats = reportRuns.map(run => ({ run, stats: computeRunStats(run) }));
+  const allAnomalies = reportRuns.flatMap(run => run.points.map(point => point.anomalyValue).filter(Number.isFinite));
+  const meanAnomaly = allAnomalies.length > 0
+    ? allAnomalies.reduce((sum, value) => sum + value, 0) / allAnomalies.length
+    : NaN;
+  const stdAnomaly = allAnomalies.length > 0
+    ? Math.sqrt(allAnomalies.reduce((sum, value) => sum + (value - meanAnomaly) ** 2, 0) / allAnomalies.length)
+    : NaN;
+  const minAnomaly = allAnomalies.length > 0 ? Math.min(...allAnomalies) : NaN;
+  const maxAnomaly = allAnomalies.length > 0 ? Math.max(...allAnomalies) : NaN;
+
+  const lines = [
+    `# ${title}`,
+    '',
+    `Generated: ${generatedAt.toISOString()}`,
+    '',
+    '## Experiment Metadata',
+  ];
+
+  if (experiment) {
+    lines.push(
+      `- Experiment ID: ${reportValue(experiment.experimentId)}`,
+      `- Name: ${reportValue(experiment.name)}`,
+      `- Type: ${reportValue(experiment.experimentType)}`,
+      `- Location: ${reportValue(experiment.location)}`,
+      `- Operator: ${reportValue(experiment.operator)}`,
+      `- Description: ${reportValue(experiment.description)}`,
+      `- Grid spacing: ${reportValue(experiment.grid_spacing)}`,
+      `- Sensor configuration: ${reportValue(experiment.sensor_configuration)}`,
+      `- Notes: ${reportValue(experiment.notes)}`,
+    );
+  } else {
+    const experimentIds = Array.from(new Set(reportRuns.map(run => String(run.experimentId))));
+    lines.push(
+      `- Scope: Selected run${reportRuns.length === 1 ? '' : 's'}`,
+      `- Experiment IDs: ${experimentIds.length > 0 ? experimentIds.join(', ') : 'Not specified'}`,
+    );
+  }
+
+  lines.push(
+    '',
+    '## Run Metadata',
+    `- Number of runs: ${reportRuns.length}`,
+    `- Total sample count: ${totalSamples}`,
+    `- Processing status: ${processingStatusSummary(reportRuns)}`,
+    '',
+  );
+
+  if (reportRuns.length === 0) {
+    lines.push('No runs were available for this report.', '');
+  } else {
+    lines.push('| Run ID | Experiment ID | Mode | Start | End | Samples | Processing | Location | Notes |');
+    lines.push('| --- | --- | --- | --- | --- | ---: | --- | --- | --- |');
+    reportRuns.forEach(run => {
+      lines.push([
+        reportValue(run.runId),
+        reportValue(run.experimentId),
+        reportValue(run.mode),
+        reportValue(run.startTime),
+        reportValue(run.endTime),
+        String(run.points.length),
+        reportValue(run.processing_status || 'unprocessed'),
+        reportValue(run.location),
+        reportValue(run.notes).replace(/\|/g, '/'),
+      ].join(' | ').replace(/^/, '| ').replace(/$/, ' |'));
+    });
+    lines.push('');
+  }
+
+  lines.push(
+    '## Anomaly Statistics',
+    `- Valid anomaly samples: ${allAnomalies.length}`,
+    `- Mean anomaly: ${reportNumber(meanAnomaly)} mGal`,
+    `- Standard deviation: ${reportNumber(stdAnomaly)} mGal`,
+    `- Minimum anomaly: ${reportNumber(minAnomaly)} mGal`,
+    `- Maximum anomaly: ${reportNumber(maxAnomaly)} mGal`,
+    '',
+    '| Run ID | Samples | Valid | Mean mGal | Std mGal | Min mGal | Max mGal | Stationary % | Outlier % |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+  );
+
+  runStats.forEach(({ run, stats }) => {
+    lines.push([
+      reportValue(run.runId),
+      String(stats?.sampleCount ?? run.points.length),
+      String(stats?.validCount ?? 0),
+      reportNumber(stats?.meanAnomaly),
+      reportNumber(stats?.stdAnomaly),
+      reportNumber(stats?.minAnomaly),
+      reportNumber(stats?.maxAnomaly),
+      reportNumber(stats?.pctStationary, 1),
+      reportNumber(stats?.pctOutliers, 1),
+    ].join(' | ').replace(/^/, '| ').replace(/$/, ' |'));
+  });
+
+  lines.push('', '## Detected Anomaly Regions');
+  if (anomalyRegions.length === 0) {
+    lines.push('No statistically significant anomaly regions were detected under the current threshold settings.');
+  } else {
+    lines.push('| Anomaly ID | Type | Center latitude | Center longitude | Peak anomaly | Area | Point density | Confidence |');
+    lines.push('| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |');
+    anomalyRegions.forEach(region => {
+      lines.push([
+        reportValue(region.id),
+        region.type,
+        reportNumber(region.centerLat, 6),
+        reportNumber(region.centerLng, 6),
+        reportNumber(region.peakAnomalyValue),
+        reportNumber(region.areaSqMeters, 1),
+        reportNumber(region.pointDensity, 3),
+        reportNumber(region.confidence, 3),
+      ].join(' | ').replace(/^/, '| ').replace(/$/, ' |'));
+    });
+  }
+
+  lines.push(
+    '',
+    '## Survey Grid Summary',
+    ...surveyGridSummary(surveyGrid, reportRuns),
+    '',
+    '## Notes / Limitations',
+    '- This report is generated from the dashboard state at export time.',
+    '- Detected anomaly regions depend on the current interpolation, threshold, filtering, and visible data settings.',
+    '- Confidence scores are relative dashboard scores, not externally validated probabilities.',
+    '- Consumer-grade MEMS, GNSS, and barometric sensors require calibration and repeat runs before scientific conclusions are drawn.',
+    '- Markdown export is provided for review and documentation; PDF generation is not included.',
+    '',
+  );
+
+  return lines.join('\n');
+}
+
 function buildSurveyGrid(origin: { lat: number; lng: number }, rows: number, columns: number, spacingMeters: number): SurveyGrid {
   const safeRows = Math.max(1, Math.min(100, Math.round(rows)));
   const safeColumns = Math.max(1, Math.min(100, Math.round(columns)));
@@ -1072,6 +1266,32 @@ const Home: React.FC = () => {
     showToast('Exported anomalies CSV', 'success');
   }, [detectedAnomalyRegions, showToast]);
 
+  const handleGenerateReport = useCallback(() => {
+    const experiment = selectedExperimentId
+      ? experiments.find(exp => exp.id === selectedExperimentId) ?? null
+      : null;
+    const reportRuns = experiment
+      ? runsForExperiment(experiment, runs)
+      : runs.filter(run => selectedRunIds.includes(run.id));
+
+    if (!experiment && reportRuns.length === 0) {
+      showToast('Select an experiment or run before generating a report', 'error');
+      return;
+    }
+
+    const generatedAt = new Date();
+    const report = buildMarkdownReport({
+      generatedAt,
+      experiment,
+      reportRuns,
+      anomalyRegions: detectedAnomalyRegions,
+      surveyGrid,
+    });
+
+    download(report, 'text/markdown', `gadv_report_${reportTimestamp(generatedAt)}.md`);
+    showToast('Generated Markdown report', 'success');
+  }, [detectedAnomalyRegions, experiments, runs, selectedExperimentId, selectedRunIds, showToast, surveyGrid]);
+
   const handleSurveyOriginSelected = useCallback((origin: { lat: number; lng: number }) => {
     const grid = buildSurveyGrid(origin, surveyRows, surveyColumns, surveySpacingMeters);
     setSurveyGrid(grid);
@@ -1183,6 +1403,7 @@ const Home: React.FC = () => {
                 onExportSelectedExperimentSummary={handleExportSelectedExperimentSummary}
                 onExportAnomaliesJSON={handleExportAnomaliesJSON}
                 onExportAnomaliesCSV={handleExportAnomaliesCSV}
+                onGenerateReport={handleGenerateReport}
                 onClearData={handleClearData}
                 runs={runs}
                 selectedRunIds={selectedRunIds}
@@ -1226,6 +1447,7 @@ const Home: React.FC = () => {
           onExportSelectedExperimentSummary={handleExportSelectedExperimentSummary}
           onExportAnomaliesJSON={handleExportAnomaliesJSON}
           onExportAnomaliesCSV={handleExportAnomaliesCSV}
+          onGenerateReport={handleGenerateReport}
           onClearData={handleClearData}
           runs={runs}
           selectedRunIds={selectedRunIds}

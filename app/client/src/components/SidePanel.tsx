@@ -9,7 +9,7 @@ import RunsPanel, { UploadState } from "./RunsPanel";
 import StatsPanel from "./StatsPanel";
 import ExperimentsPanel from "./ExperimentsPanel";
 import { Experiment } from "@/lib/types";
-import { Download, Link, Unlink, Table, Code, Trash2 } from "lucide-react";
+import { Download, FileText, Link, Unlink, Table, Code, Trash2 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -37,6 +37,7 @@ interface SidePanelProps {
   onExportSelectedExperimentSummary: () => void;
   onExportAnomaliesJSON: () => void;
   onExportAnomaliesCSV: () => void;
+  onGenerateReport: () => void;
   onClearData: () => void;
   // runs
   runs: ExperimentRun[];
@@ -78,6 +79,7 @@ const SidePanel: React.FC<SidePanelProps> = ({
   onExportSelectedExperimentSummary,
   onExportAnomaliesJSON,
   onExportAnomaliesCSV,
+  onGenerateReport,
   onClearData,
   runs,
   selectedRunIds,
@@ -355,6 +357,16 @@ const SidePanel: React.FC<SidePanelProps> = ({
                 disabled={detectedAnomalyCount === 0}
               >
                 Anom CSV
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="col-span-2 h-7 text-[10px]"
+                onClick={onGenerateReport}
+                disabled={!selectedExperimentId && selectedRunIds.length === 0}
+              >
+                <FileText className="mr-1 h-3 w-3" />
+                Generate Report
               </Button>
             </div>
           </div>
