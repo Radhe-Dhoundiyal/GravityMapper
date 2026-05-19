@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "author": "GADV",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-s3-devkitc-1", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    { "type": "wokwi-mpu6050", "id": "mpu", "top": -135, "left": -210, "attrs": {} },
+    { "type": "wokwi-bmp280", "id": "bmp", "top": -135, "left": 230, "attrs": {} },
+    { "type": "wokwi-ds18b20", "id": "temp", "top": 190, "left": -225, "attrs": {} },
+    { "type": "wokwi-hc-sr04", "id": "sonar", "top": 190, "left": 190, "attrs": { "distance": "35" } },
+    { "type": "wokwi-gps", "id": "gps", "top": -245, "left": 10, "attrs": {} },
+    { "type": "wokwi-potentiometer", "id": "battery", "top": 310, "left": 5, "attrs": {} }
+  ],
+  "connections": [
+    [ "esp:3V3", "mpu:VCC", "red", [ "h-30", "v-110" ] ],
+    [ "esp:GND.1", "mpu:GND", "black", [ "h-40", "v-100" ] ],
+    [ "esp:8", "mpu:SDA", "green", [ "h-75", "v-85" ] ],
+    [ "esp:9", "mpu:SCL", "yellow", [ "h-85", "v-75" ] ],
+    [ "esp:3V3", "bmp:VCC", "red", [ "h35", "v-115" ] ],
+    [ "esp:GND.2", "bmp:GND", "black", [ "h45", "v-105" ] ],
+    [ "esp:8", "bmp:SDA", "green", [ "h95", "v-90" ] ],
+    [ "esp:9", "bmp:SCL", "yellow", [ "h105", "v-80" ] ],
+    [ "esp:44", "gps:TX", "blue", [ "v-120" ] ],
+    [ "esp:43", "gps:RX", "purple", [ "v-130" ] ],
+    [ "esp:3V3", "gps:VCC", "red", [ "v-150" ] ],
+    [ "esp:GND.1", "gps:GND", "black", [ "v-145" ] ],
+    [ "esp:4", "temp:DQ", "green", [ "h-120", "v110" ] ],
+    [ "esp:3V3", "temp:VCC", "red", [ "h-135", "v130" ] ],
+    [ "esp:GND.1", "temp:GND", "black", [ "h-145", "v140" ] ],
+    [ "esp:6", "sonar:TRIG", "green", [ "h100", "v115" ] ],
+    [ "esp:7", "sonar:ECHO", "blue", [ "h110", "v125" ] ],
+    [ "esp:5V", "sonar:VCC", "red", [ "h125", "v135" ] ],
+    [ "esp:GND.2", "sonar:GND", "black", [ "h135", "v145" ] ],
+    [ "esp:3V3", "battery:VCC", "red", [ "v175" ] ],
+    [ "esp:GND.1", "battery:GND", "black", [ "v185" ] ]
+  ],
+  "dependencies": {}
+}
