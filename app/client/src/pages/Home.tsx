@@ -8,7 +8,7 @@ import SettingsModal from "@/components/SettingsModal";
 import AnomalyPlot from "@/components/AnomalyPlot";
 import RunCompare from "@/components/RunCompare";
 import { useWebSocket } from "@/lib/useWebSocket";
-import { apiFetch as fetch, requestWriteToken, currentWriteToken } from "@/lib/api";
+import { ACCESS_CHANGED_EVENT, apiFetch as fetch, requestWriteToken, currentWriteToken } from "@/lib/api";
 import { savedRunToClient } from "@/lib/savedRuns";
 import { ToastContainer, Toast } from "@/components/ui/toast";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -561,16 +561,22 @@ const Home: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
+    let loadVersion = 0;
 
     async function loadSavedRuns() {
+      const version = ++loadVersion;
       try {
         const [runsResponse, experimentsResponse] = await Promise.all([fetch('/api/runs'), fetch('/api/experiments')]);
         if (!runsResponse.ok || !experimentsResponse.ok) throw new Error('Saved data could not be loaded; check durable storage configuration.');
         const savedRuns = await runsResponse.json();
         const savedExperiments = await experimentsResponse.json();
-        if (cancelled) return;
+        if (cancelled || version !== loadVersion) return;
         setRuns(prev => {
-          const loaded = savedRuns.map((run: any) => ({ ...savedRunToClient(run), color: nextRunColor() }));
+          const loaded = savedRuns.map((run: any) => {
+            const existing = prev.find(item => item.runId === run.run_id);
+            return { ...savedRunToClient(run),
+              ...(existing ? { id: existing.id, color: existing.color, visible: existing.visible } : { color: nextRunColor() }) };
+          });
           const storedIds = new Set(loaded.map((run: ExperimentRun) => run.runId));
           return [...loaded, ...prev.filter(run => !storedIds.has(run.runId))];
         });
@@ -582,13 +588,15 @@ const Home: React.FC = () => {
           notes: exp.notes || '', createdAt: new Date(),
         })));
       } catch (error: any) {
-        if (!cancelled) showToast(error.message || 'Unable to load saved runs', 'error');
+        if (!cancelled && version === loadVersion) showToast(error.message || 'Unable to load saved runs', 'error');
       }
     }
 
+    window.addEventListener(ACCESS_CHANGED_EVENT, loadSavedRuns);
     loadSavedRuns();
     return () => {
       cancelled = true;
+      window.removeEventListener(ACCESS_CHANGED_EVENT, loadSavedRuns);
     };
   }, [showToast]);
 
@@ -794,26 +802,31 @@ const Home: React.FC = () => {
   const handleUpdateExperimentMetadata = useCallback(async (id: string, metadata: ExperimentMetadataUpdate) => {
     const experiment = experiments.find(exp => exp.id === id);
     if (!experiment) return;
+    // Patch only edited fields; public views omit private metadata.
+    const changes = Object.fromEntries(Object.entries(metadata).filter(([key, value]) => value !== experiment[key as keyof Experiment]));
+    if (!Object.keys(changes).length) return;
     try {
       const response = await fetch(`/api/experiments/${encodeURIComponent(experiment.experimentId)}/metadata`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(metadata),
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(changes),
       });
       if (!response.ok) throw new Error('Experiment metadata was not saved');
-      setExperiments(prev => prev.map(exp => exp.id === id ? { ...exp, ...metadata } : exp));
+      setExperiments(prev => prev.map(exp => exp.id === id ? { ...exp, ...changes } : exp));
     } catch (error: any) { showToast(error.message, 'error'); }
   }, [experiments, showToast]);
 
   const handleUpdateRunMetadata = useCallback(async (id: string, metadata: Pick<ExperimentRun, 'location' | 'notes' | 'processing_status'>) => {
     const run = runs.find(item => item.id === id);
     if (!run) return;
+    const changes = Object.fromEntries(Object.entries(metadata).filter(([key, value]) => value !== run[key as keyof ExperimentRun]));
+    if (!Object.keys(changes).length) return;
     try {
       if (run.persisted) {
         const response = await fetch(`/api/runs/${encodeURIComponent(String(run.experimentId))}/${encodeURIComponent(run.runId)}/metadata`, {
-          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(metadata),
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(changes),
         });
         if (!response.ok) throw new Error('Run metadata was not saved');
       }
-      setRuns(prev => prev.map(item => item.id === id ? { ...item, ...metadata } : item));
+      setRuns(prev => prev.map(item => item.id === id ? { ...item, ...changes } : item));
     } catch (error: any) { showToast(error.message, 'error'); }
   }, [runs, showToast]);
 

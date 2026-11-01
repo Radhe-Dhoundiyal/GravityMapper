@@ -1,8 +1,8 @@
-import { useRef, type FC, type ChangeEvent } from "react";
+import { useRef, useState, type FC, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Eye, EyeOff, Upload, Download, KeyRound, Database, Trash2, CheckSquare, Square, Loader2, AlertCircle, CheckCircle2, FlaskConical, PlayCircle } from "lucide-react";
-import { requestWriteToken } from "@/lib/api";
+import { downloadOriginalCsv, requestWriteToken } from "@/lib/api";
 import { ExperimentRun, Experiment } from "@/lib/types";
 
 export type UploadState = "idle" | "uploading" | "processing" | "done" | "error";
@@ -42,7 +42,17 @@ const RunsPanel: FC<RunsPanelProps> = ({
   experiments = [], onAssignRunToExperiment, onCreateExperimentForRun,
 }) => {
   const fileRef = useRef<HTMLInputElement>(null);
+  const [downloadError, setDownloadError] = useState("");
+  const [downloadingRunId, setDownloadingRunId] = useState<string | null>(null);
   const busy = uploadState === "uploading" || uploadState === "processing";
+
+  async function handleOriginalDownload(runId: string) {
+    setDownloadError("");
+    setDownloadingRunId(runId);
+    try { await downloadOriginalCsv(runId); }
+    catch (error) { setDownloadError(error instanceof Error ? error.message : "Original download failed"); }
+    finally { setDownloadingRunId(null); }
+  }
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -119,6 +129,7 @@ const RunsPanel: FC<RunsPanelProps> = ({
             {uploadError}
           </div>
         )}
+        {downloadError && <div role="alert" className="text-[10px] text-red-600">{downloadError}</div>}
 
         {/* Source badge shown after success */}
         {uploadState === "done" && (
@@ -184,9 +195,10 @@ const RunsPanel: FC<RunsPanelProps> = ({
               <div className="text-[10px] text-gray-500 pl-7 leading-relaxed">
                 <span className="font-mono truncate block">{run.runId}</span>
                 {run.persisted && run.mode === 'uploaded' && (
-                  <a className="flex w-fit items-center gap-1 my-1 text-blue-600" href={`/api/runs/${encodeURIComponent(run.runId)}/original.csv`} download>
-                    <Download className="h-3 w-3" /> Original CSV
-                  </a>
+                  <Button variant="link" className="flex w-fit h-auto p-0 items-center gap-1 my-1 text-[10px] text-blue-600"
+                    onClick={() => handleOriginalDownload(run.runId)} disabled={downloadingRunId === run.runId}>
+                    {downloadingRunId === run.runId ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />} Original CSV
+                  </Button>
                 )}
                 <span>{fmt(run.startTime)} · {duration(run)} · {run.points.length} pts</span>
                 {run.notes && <span className="block text-gray-400 truncate">{run.notes}</span>}

@@ -9,7 +9,8 @@ import { z } from "zod";
 import { storage } from "./storage";
 import { runStorage, sha256, canonicalJson, type StoredRun } from "./runStorage";
 import { StorageError, requireDatabase } from "./database";
-import { requireWriteAccess, validWriteToken } from "./writeAccess";
+import { bearerToken, requireWriteAccess, validWriteToken, validTelemetryToken } from "./writeAccess";
+import { publicRun, publicExperiment, publicTelemetryPoint } from "./publicData";
 import { insertAnomalyPointSchema, sensorDataPointSchema } from "@shared/schema";
 import { processUploadedFile, parseCsvRows, NoPythonError } from "./csvProcessor";
 import { processStoredRun } from "./runProcessor";
@@ -39,6 +40,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   await fs.mkdir(UPLOADS_DIR, { recursive: true });
   // Bearer authentication runs before parsing or writing uploaded files.
   app.use("/api", (req, res, next) => {
+    if (req.method === "POST" && /^\/telemetry\/?$/i.test(req.path)) { next(); return; }
     if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method)) requireWriteAccess(req, res, next);
     else next();
   });
@@ -47,12 +49,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   function broadcast(data: unknown) {
     wss.clients.forEach(client => { if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(data)); });
   }
-  async function saveTelemetry(raw: any) {
+  async function saveTelemetry(raw: any, token: unknown) {
+    if (!validTelemetryToken(token, raw?.device_id)) throw new StorageError("A valid administrative or device token is required", 401);
     const rich = sensorDataPointSchema.parse(raw);
     const inserted = await runStorage.appendTelemetryPoint(rich, raw);
     if (!inserted) return;
     await storage.createAnomalyPoint({ latitude: String(rich.latitude), longitude: String(rich.longitude), anomalyValue: String(rich.anomalyValue), timestamp: rich.timestamp });
-    broadcast({ type: "newAnomalyPoint", data: rich });
+    broadcast({ type: "newAnomalyPoint", data: publicTelemetryPoint(rich) });
   }
   wss.on("connection", ws => {
     storage.getAllAnomalyPoints().then(points => {
@@ -61,11 +64,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     ws.on("message", async message => {
       try {
         const packet = JSON.parse(message.toString());
-        if (!validWriteToken(packet.token)) throw new StorageError("A valid write access token is required", 401);
         if (packet.type === "newAnomalyPoint") {
-          await saveTelemetry(packet.data);
+          await saveTelemetry(packet.data, packet.token);
           ws.send(JSON.stringify({ type: "saved", run_id: packet.data.run_id }));
         } else if (packet.type === "clearData") {
+          if (!validWriteToken(packet.token)) throw new StorageError("A valid administrative token is required", 401);
           await storage.clearAllAnomalyPoints(); broadcast({ type: "dataCleared" });
         } else throw new StorageError("Unknown message type", 400);
       } catch (error) {
@@ -75,11 +78,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   app.get("/api/health", (_req, res) => res.json({ ok: true, service: "gadv", time: new Date().toISOString() }));
   app.post("/api/telemetry", route(async (req, res) => {
-    await saveTelemetry(req.body?.type === "newAnomalyPoint" ? req.body.data : req.body);
+    await saveTelemetry(req.body?.type === "newAnomalyPoint" ? req.body.data : req.body, bearerToken(req));
     res.json({ ok: true, saved: true, broadcast: wss.clients.size });
   }));
-  app.get("/api/runs", route(async (_req, res) => res.json(await runStorage.listRuns())));
-  app.get("/api/experiments", route(async (_req, res) => res.json(await runStorage.listExperiments())));
+  app.get("/api/runs", route(async (req, res) => {
+    res.set("Cache-Control", "private, no-store").vary("Authorization");
+    const runs = await runStorage.listRuns();
+    res.json(validWriteToken(bearerToken(req)) ? runs : runs.map(publicRun));
+  }));
+  app.get("/api/experiments", route(async (req, res) => {
+    res.set("Cache-Control", "private, no-store").vary("Authorization");
+    const experiments = await runStorage.listExperiments();
+    res.json(validWriteToken(bearerToken(req)) ? experiments : experiments.map(publicExperiment));
+  }));
   app.delete("/api/experiments/:experimentId", route(async (req, res) => {
     await runStorage.removeExperiment(id.parse(req.params.experimentId));
     res.json({ ok: true, saved_runs_retained: true });
@@ -92,7 +103,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const metadata = z.object({ location: text, notes: text, start_time: z.string().datetime().optional(), end_time: z.string().datetime().optional(), duration: z.number().finite().nonnegative().optional(), processing_status: z.enum(["unprocessed", "processing", "processed", "failed"]).optional(), assigned_experiment_id: id.nullable().optional() }).parse(req.body);
     res.json(await runStorage.updateRunMetadata(req.params.experimentId, req.params.runId, metadata));
   }));
-  app.get("/api/runs/:runId/original.csv", route(async (req, res) => {
+  app.get("/api/runs/:runId/original.csv", (_req, res, next) => {
+    res.set("Cache-Control", "private, no-store"); next();
+  }, requireWriteAccess, route(async (req, res) => {
     const original = await runStorage.originalUpload(req.params.runId);
     res.attachment(path.basename(original.filename)).type("text/csv").send(original.bytes);
   }));

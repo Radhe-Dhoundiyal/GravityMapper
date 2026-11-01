@@ -18,7 +18,11 @@ CSV originals, their SHA-256 hashes, run observations, processing results, metad
 
 To transfer existing JSON runs without deleting them, run `npm run db:import-json -- <path-to-runs-directory>` after migration. Conflicts stop the import without overwriting an existing run. Back up those source files before changing hosting. The legacy `/api/anomaly-points` live-history view remains transient; clearing it never deletes saved runs.
 
-All HTTP mutations require `Authorization: Bearer <GADV_WRITE_TOKEN>`. WebSocket mutation messages require a top-level `token` field; read-only dashboard connections still work without a token. Use **Write access** in the Runs tab to enter the token for the current browser session. The token stays in memory and must be re-entered after closing/reloading. Keep it out of source files and device logs. Existing devices must be configured with this token before sending telemetry. Writes fail closed when the token or database is missing. Read endpoints currently remain public.
+Administrative mutations and original CSV downloads require `Authorization: Bearer <GADV_WRITE_TOKEN>`. Use **Write access** in the Runs tab for administrative access; the token stays in memory and must be re-entered after reloading. The original-file button sends an authenticated request. Downloads and run/experiment reads are marked `no-store`.
+
+For ESP32 and Wokwi telemetry, configure `GADV_DEVICE_TOKENS` as a private JSON object mapping each `device_id` to its own random secret of at least 32 characters. Use different secrets from the administrative token. These credentials allow only telemetry submission for the matching device, over HTTP bearer authorization or a WebSocket message's top-level `token` field. They cannot upload files, download originals, edit metadata, process runs, or delete data. Supply device secrets privately; never put the administrative token or real device secrets in public firmware or simulation files. Existing telemetry payloads and endpoints are unchanged; add the device authorization header or message token.
+
+Public dashboard reads and WebSocket broadcasts contain normalized measurements and run/experiment identifiers needed for maps, plots, statistics, and grouping. Original source columns, source observations, device IDs, provenance details, and private notes/operator metadata are omitted. Administrative bearer-authenticated reads include full metadata for editing. Missing or malformed credentials fail closed.
 
 For local testing, set `TEST_DATABASE_URL` to a separate PostgreSQL database whose name ends in `_test`, then run `npm run test:persistence`. Never point that variable at a production database. Review the migration and database configuration before deploying; a redeployment must retain the same persistent `DATABASE_URL`.
 
@@ -38,4 +42,4 @@ $env:NODE_ENV='production'
 node dist/index.js
 ```
 
-Check `/api/health` and `/` on the chosen port. The deployed dashboard is at <https://gravitymapper.onrender.com/> and uses `wss://gravitymapper.onrender.com/ws`. A sleeping service can delay the first request; the dashboard reconnects after a disconnect. Telemetry endpoints currently have no device authentication.
+Check `/api/health` and `/` on the chosen port. The deployed dashboard is at <https://gravitymapper.onrender.com/> and uses `wss://gravitymapper.onrender.com/ws`. A sleeping service can delay the first request; the dashboard reconnects after a disconnect.
