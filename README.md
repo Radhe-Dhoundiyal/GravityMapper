@@ -19,7 +19,7 @@ The Python pipeline processes raw sensor logs with tilt compensation, altitude a
 The frontend uses React, TypeScript, Vite, Leaflet, and Recharts. Express serves the API, the WebSocket bridge, and the built frontend. Python processing uses NumPy and pandas.
 
 - `app/client/`: dashboard
-- `app/server/`: API, telemetry, CSV processing, and JSON run storage
+- `app/server/`: API, telemetry, CSV processing, and PostgreSQL-backed run storage
 - `app/shared/`: shared schemas and types
 - `analysis/scripts/gravity_pipeline.py`: processing pipeline
 - `data/raw/sample_log_template.csv`: synthetic CSV example
