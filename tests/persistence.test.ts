@@ -222,14 +222,16 @@ test("PostgreSQL transactions, API persistence, originals, conflicts, and authen
       const result = await response.json(); assert.equal(result.source, 'raw'); assert.equal(result.saved, true);
       assert.equal(await (await fetch(`${base}/api/runs/${prefix}-raw/original.csv`, { headers: adminHeaders() })).text(), csv);
     });
-    await t.test('Process Run saves derived output without replacing observations', async () => {
+    await t.test('Process Run refuses incomplete sensor input without replacing observations', async () => {
+      // This telemetry has coordinates and a reported anomaly, but no
+      // accelerometer triad, GPS-fix quality, or measured altitude.
       const before = await runStorage.getRun(exp, prefix + '-live');
       const response = await fetch(base + '/api/process-run', { method: 'POST', headers: { Authorization: `Bearer ${process.env.GADV_WRITE_TOKEN}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ experiment_id: exp, run_id: prefix + '-live' }) });
-      assert.equal(response.status, 200);
+      assert.notEqual(response.status, 200, "Incomplete input must not produce a processed anomaly");
       const after = await runStorage.getRun(exp, prefix + '-live');
       assert.deepEqual(after.points, before.points);
-      assert.ok(after.processed_points?.length);
-      assert.equal(after.processing_status, 'processed');
+      assert.equal(after.processed_points, undefined);
+      assert.notEqual(after.processing_status, 'processed');
     });
     await t.test('database failures do not acknowledge a save', async () => {
       const client = await pool!.connect();
