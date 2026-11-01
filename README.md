@@ -30,10 +30,13 @@ Use Node.js 24 and npm 11. From the repository root:
 
 ```sh
 npm ci
+npm run db:migrate
 npm run dev
 ```
 
 Open <http://localhost:5000>. In PowerShell, use `npm.cmd` if execution policy blocks `npm`.
+
+Set `DATABASE_URL` to persistent PostgreSQL and `GADV_WRITE_TOKEN` to a random secret of at least 32 characters before migrating and starting. Enter the token through **Write access** in the Runs tab when uploading or editing data. Without database configuration, imports and recordings cannot be saved. See the deployment guide for setup and legacy JSON transfer.
 
 For raw CSV processing and Process Run, install Python 3.11+ and the analysis requirements:
 

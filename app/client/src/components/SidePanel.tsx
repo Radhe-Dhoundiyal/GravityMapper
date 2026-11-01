@@ -140,7 +140,7 @@ const SidePanel: React.FC<SidePanelProps> = ({
         </TabsList>
 
         {/* ── Connect tab ──────────────────────────────────────────────────── */}
-        <TabsContent value="connect" className="flex flex-col flex-1 min-h-0 overflow-y-auto mt-0">
+        <TabsContent value="connect" className="flex flex-col flex-1 min-h-0 overflow-y-auto mt-0 data-[state=inactive]:hidden">
           {/* Device Connection */}
           <div className="p-4 border-b border-gray-200">
             <h2 className="text-sm font-medium mb-3">Device Connection</h2>
@@ -230,13 +230,13 @@ const SidePanel: React.FC<SidePanelProps> = ({
               <div>
                 <Label className="mb-1 text-xs">Min Anomaly</Label>
                 <input
-                  type="range" min="0" max="2" step="0.1"
-                  value={filters.minAnomaly}
-                  onChange={(e) => onFiltersChange({ minAnomaly: parseFloat(e.target.value) })}
+                  type="number" step="any" placeholder="All values"
+                  value={filters.minAnomaly ?? ''}
+                  onChange={(e) => onFiltersChange({ minAnomaly: e.target.value === '' ? null : Number(e.target.value) })}
                   className="w-full"
                 />
                 <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
-                  <span>0</span><span>{filters.minAnomaly.toFixed(1)}</span><span>2</span>
+                  <span>{filters.minAnomaly === null ? 'All values' : `Minimum ${filters.minAnomaly}`}</span>
                 </div>
               </div>
               <div>
@@ -277,7 +277,7 @@ const SidePanel: React.FC<SidePanelProps> = ({
         </TabsContent>
 
         {/* ── Runs tab ─────────────────────────────────────────────────────── */}
-        <TabsContent value="runs" className="flex flex-col flex-1 min-h-0 overflow-hidden mt-0">
+        <TabsContent value="runs" className="flex flex-col flex-1 min-h-0 overflow-hidden mt-0 data-[state=inactive]:hidden">
           <RunsPanel
             runs={runs}
             selectedRunIds={selectedRunIds}
@@ -297,7 +297,7 @@ const SidePanel: React.FC<SidePanelProps> = ({
         </TabsContent>
 
         {/* ── Experiments tab ──────────────────────────────────────────────── */}
-        <TabsContent value="exps" className="flex flex-col flex-1 min-h-0 overflow-hidden mt-0">
+        <TabsContent value="exps" className="flex flex-col flex-1 min-h-0 overflow-hidden mt-0 data-[state=inactive]:hidden">
           <ExperimentsPanel
             experiments={experiments}
             runs={runs}
@@ -315,7 +315,7 @@ const SidePanel: React.FC<SidePanelProps> = ({
         </TabsContent>
 
         {/* ── Stats tab ─────────────────────────────────────────────────────── */}
-        <TabsContent value="stats" className="flex flex-col flex-1 min-h-0 overflow-y-auto mt-0">
+        <TabsContent value="stats" className="flex flex-col flex-1 min-h-0 overflow-y-auto mt-0 data-[state=inactive]:hidden">
           <div className="p-3 border-b border-gray-100 bg-gray-50">
             <div className="flex items-center gap-1.5 text-[10px] text-gray-400 uppercase tracking-wide mb-2">
               <Download className="h-3 w-3" />

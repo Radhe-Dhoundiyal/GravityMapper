@@ -61,18 +61,13 @@ const COL_MAP: Record<string, string> = {
   gps_hdop:        "hdop",       hdop: "hdop",
   gps_satellites:  "satellites", satellites: "satellites",
   gps_fix_quality: "fixQuality", fixquality: "fixQuality",
+  speed_mps: "speed", speed: "speed",
   // flags
   platform_stationary: "platformStationary", platformstationary: "platformStationary",
   outlier_flag:        "outlierFlag",        outlierflag: "outlierFlag",
 };
 
 // ── CSV parsing ───────────────────────────────────────────────────────────────
-
-function parseNum(s: string): number | undefined {
-  if (!s || s === "NaN" || s === "nan" || s === "NULL") return undefined;
-  const v = parseFloat(s);
-  return isNaN(v) ? undefined : v;
-}
 
 function parseBool(s: string): boolean | undefined {
   const t = s.trim();
@@ -85,110 +80,86 @@ export interface UploadResult {
   source: "raw" | "processed";
   runId: string;
   experimentId: string;
+  deviceId: string;
   location: string;
   notes: string;
   warnings: string[];
   points: Record<string, any>[];
 }
 
+export function parseCsvRows(content: string): Record<string, string>[] {
+  const records: string[][] = [];
+  let row: string[] = [], cell = "", quoted = false;
+  const text = content.replace(/^\uFEFF/, "");
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === '"') {
+      if (quoted && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (!quoted && cell !== "") throw new Error("Invalid CSV quoting");
+      else quoted = !quoted;
+    } else if (!quoted && char === ",") { row.push(cell); cell = ""; }
+    else if (!quoted && (char === "\n" || char === "\r")) {
+      if (char === "\r" && text[i + 1] === "\n") i++;
+      row.push(cell); if (row.some(value => value !== "")) records.push(row);
+      row = []; cell = "";
+    } else cell += char;
+  }
+  if (quoted) throw new Error("Unclosed CSV quote");
+  row.push(cell); if (row.some(value => value !== "")) records.push(row);
+  const headers = records.shift()?.map(header => header.trim()) ?? [];
+  if (headers.length === 0 || new Set(headers.map(norm)).size !== headers.length) throw new Error("Missing or duplicate CSV headers");
+  if (records.length === 0 || records.length > 100000) throw new Error("CSV must contain between 1 and 100000 observations");
+  return records.map((values, index) => {
+    if (values.length !== headers.length) throw new Error(`CSV row ${index + 2} has an incorrect column count`);
+    return Object.fromEntries(headers.map((header, i) => [header, values[i]]));
+  });
+}
+
 export function parseCsvContent(content: string, originalName: string): UploadResult {
-  const lines = content.split(/\r?\n/).filter((l) => l.trim() !== "");
-  if (lines.length < 2) throw new Error("CSV has no data rows");
-
-  const rawHeaders  = lines[0].split(",").map((h) => h.trim());
-  const normHeaders = rawHeaders.map(norm);
-  const isProcessed = normHeaders.some((h) => PROCESSED_MARKERS.has(h));
-
-  // Build column-index lookup
-  const colIdx: Record<string, number> = {};
-  normHeaders.forEach((h, i) => { colIdx[h] = i; });
-
-  // Pull run metadata from the first data row
-  const firstCells = lines[1].split(",");
-  const getMeta = (...names: string[]): string => {
-    for (const n of names) {
-      const idx = colIdx[norm(n)] ?? colIdx[n];
-      if (idx !== undefined && firstCells[idx]?.trim()) return firstCells[idx].trim();
+  const records = parseCsvRows(content);
+  const rows = records.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => [norm(key), value])));
+  const first = rows[0];
+  const runId = first.run_id || first.runid || path.basename(originalName, ".csv");
+  const experimentId = first.experiment_id || first.experimentid || "CAL";
+  for (const row of rows) {
+    if ((row.run_id || row.runid || runId) !== runId || (row.experiment_id || row.experimentid || experimentId) !== experimentId) {
+      throw new Error("A CSV upload must contain exactly one run and experiment");
     }
-    return "";
-  };
-
-  const runId       = getMeta("run_id", "runId")             || originalName.replace(".csv", "");
-  const experimentId = getMeta("experiment_id", "experimentId") || "CAL";
-  const location    = runId.split("_").slice(2, -1).join("-") || "unknown";
-
-  const warnings: string[] = [];
-  const points: Record<string, any>[] = [];
-
-  for (let i = 1; i < lines.length; i++) {
-    const cells = lines[i].split(",");
-    const raw: Record<string, any> = {};
-
-    normHeaders.forEach((nh, ci) => {
-      const cellVal = cells[ci]?.trim() ?? "";
-      if (!cellVal || cellVal === "NaN" || cellVal === "nan") return;
-      const field = COL_MAP[nh];
-      if (!field) return;
-
-      if (field === "timestamp") {
-        raw.timestamp = cellVal;
-      } else if (field === "platformStationary" || field === "outlierFlag") {
-        const b = parseBool(cellVal);
-        if (b !== undefined) raw[field] = b;
+  }
+  const points = rows.map((row, index) => {
+    const point: Record<string, any> = { source_fields: records[index] };
+    for (const [column, text] of Object.entries(row)) {
+      const field = COL_MAP[column];
+      if (!field || text.trim() === "") continue;
+      if (field === "timestamp") point.timestamp = text;
+      else if (field === "platformStationary" || field === "outlierFlag") {
+        const flag = parseBool(text);
+        if (flag === undefined) throw new Error(`Invalid flag on CSV row ${index + 2}`);
+        point[field] = flag;
       } else {
-        const n = parseNum(cellVal);
-        if (n !== undefined) raw[field] = n;
+        const value = Number(text);
+        if (Number.isFinite(value)) point[field] = value;
       }
-    });
-
-    if (raw.latitude == null || raw.longitude == null) {
-      warnings.push(`Row ${i + 1}: missing lat/lon — skipped`);
-      continue;
     }
-
-    // Resolve anomaly value: priority final > best > raw
-    const anomalyValue =
-      raw.__prio_final ??
-      raw.__prio_best  ??
-      raw.__prio_raw   ??
-      0;
-
-    const point: Record<string, any> = {
-      timestamp:    raw.timestamp ?? new Date().toISOString(),
-      latitude:     raw.latitude,
-      longitude:    raw.longitude,
-      anomalyValue,
-    };
-
-    // Copy optional fields
-    const optional = [
-      "anomalySmoothed",
-      "ax", "ay", "az",
-      "gx", "gy", "gz",
-      "pressure", "temperature", "altitude",
-      "hdop", "satellites", "fixQuality",
-      "platformStationary", "outlierFlag",
-    ];
-    for (const f of optional) {
-      if (raw[f] != null) point[f] = raw[f];
+    point.anomalyValue = point.__prio_final ?? point.__prio_best ?? point.__prio_raw;
+    delete point.__prio_final; delete point.__prio_best; delete point.__prio_raw;
+    if (!Number.isFinite(point.latitude) || Math.abs(point.latitude) > 90 ||
+        !Number.isFinite(point.longitude) || Math.abs(point.longitude) > 180 ||
+        !Number.isFinite(point.anomalyValue) || !point.timestamp || !Number.isFinite(Date.parse(point.timestamp))) {
+      throw new Error(`CSV row ${index + 2} needs valid coordinates, timestamp, and anomaly value; no rows were saved`);
     }
-
-    points.push(point);
-  }
-
-  if (warnings.length > 8) {
-    const extra = warnings.splice(8);
-    warnings.push(`…and ${extra.length} more row(s) skipped`);
-  }
-
+    point.device_id = row.device_id || "unknown";
+    point.experiment_id = experimentId;
+    point.run_id = runId;
+    return point;
+  });
+  const isProcessed = Object.keys(first).some(header => PROCESSED_MARKERS.has(header));
   return {
-    source: isProcessed ? "processed" : "raw",
-    runId,
-    experimentId,
-    location,
-    notes: isProcessed ? "Loaded from processed CSV" : "Loaded from raw CSV",
-    warnings,
-    points,
+    source: isProcessed ? "processed" : "raw", runId, experimentId,
+    deviceId: first.device_id || "unknown",
+    location: first.location || "unknown",
+    notes: first.notes || first.quality_note || "",
+    warnings: [], points,
   };
 }
 

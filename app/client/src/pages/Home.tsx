@@ -8,6 +8,8 @@ import SettingsModal from "@/components/SettingsModal";
 import AnomalyPlot from "@/components/AnomalyPlot";
 import RunCompare from "@/components/RunCompare";
 import { useWebSocket } from "@/lib/useWebSocket";
+import { ACCESS_CHANGED_EVENT, apiFetch as fetch, requestWriteToken, currentWriteToken } from "@/lib/api";
+import { savedRunToClient } from "@/lib/savedRuns";
 import { ToastContainer, Toast } from "@/components/ui/toast";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -409,7 +411,7 @@ const Home: React.FC = () => {
     thresholds: { medium: 0.5, high: 1.0 },
     darkMode: false,
   });
-  const [filters, setFilters] = useState<AnomalyFilters>({ minAnomaly: 0, timeRange: 'all' });
+  const [filters, setFilters] = useState<AnomalyFilters>({ minAnomaly: null, timeRange: 'all' });
 
   // ── Connection ─────────────────────────────────────────────────────────────
   const [connectionSettings, setConnectionSettings] = useState<ConnectionSettings>({
@@ -427,7 +429,7 @@ const Home: React.FC = () => {
     const id = `live-${Date.now()}`;
     const run: ExperimentRun = {
       id,
-      runId: `live_${new Date().toISOString().slice(0, 10)}_run`,
+      runId: `live_${new Date().toISOString().replace(/[:.]/g, '-')}_${crypto.randomUUID().slice(0, 8)}`,
       experimentId: 'CAL',
       mode: connectionSettings.connectionType === 'simulate' ? 'simulated' : 'live',
       startTime: new Date(),
@@ -517,13 +519,17 @@ const Home: React.FC = () => {
     setLastDataPoint(point);
 
     setRuns(prev => {
-      const idx = prev.findIndex(r => r.id === activeRunId);
+      const idx = point.run_id
+        ? prev.findIndex(run => run.runId === point.run_id)
+        : prev.findIndex(run => run.id === activeRunId);
       if (idx === -1) {
-        dbg('addLivePoint: no active run, point not appended');
-        return prev;
+        if (!point.run_id || !point.experiment_id) return prev;
+        return [{ ...savedRunToClient({ run_id: point.run_id, experiment_id: point.experiment_id,
+          device_id: point.device_id, start_time: point.timestamp.toISOString(), points: [point] }), color: nextRunColor() }, ...prev];
       }
       const updated = [...prev];
-      updated[idx] = { ...updated[idx], points: [...(updated[idx].points ?? []), point] };
+      updated[idx] = { ...updated[idx], persisted: true, experimentId: point.experiment_id || updated[idx].experimentId,
+        points: [...(updated[idx].points ?? []), point] };
       dbg('point appended to run', updated[idx].runId, '→', updated[idx].points.length, 'pts');
       return updated;
     });
@@ -555,84 +561,42 @@ const Home: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
+    let loadVersion = 0;
 
     async function loadSavedRuns() {
+      const version = ++loadVersion;
       try {
-        const res = await fetch('/api/runs');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const savedRuns = (await res.json()) as StoredRunDTO[];
-        if (cancelled || savedRuns.length === 0) return;
-
-        const parsedRuns: ExperimentRun[] = savedRuns.map((run) => {
-          const points = (run.points ?? [])
-            .map((p) => ({ ...p, timestamp: coerceDate(p.timestamp) }))
-            .filter(isFinitePoint);
-          const firstPointTime = points[0]?.timestamp;
-          const lastPointTime = points[points.length - 1]?.timestamp;
-
-          const startTime = coerceDate(run.start_time || firstPointTime);
-          const endTime = run.end_time ? coerceDate(run.end_time) : lastPointTime;
-          return {
-            id: `saved-${run.experiment_id}-${run.run_id}`,
-            runId: run.run_id,
-            experimentId: run.experiment_id,
-            mode: 'live',
-            startTime,
-            endTime,
-            start_time: startTime,
-            end_time: endTime,
-            duration: run.duration ?? runDurationSeconds(startTime, endTime),
-            processing_status: run.processing_status || 'unprocessed',
-            location: run.run_metadata?.location || run.device_id || 'unknown',
-            notes: run.run_metadata?.notes || 'Saved telemetry run',
-            points,
-            visible: true,
-            color: nextRunColor(),
-          };
-        });
-
+        const [runsResponse, experimentsResponse] = await Promise.all([fetch('/api/runs'), fetch('/api/experiments')]);
+        if (!runsResponse.ok || !experimentsResponse.ok) throw new Error('Saved data could not be loaded; check durable storage configuration.');
+        const savedRuns = await runsResponse.json();
+        const savedExperiments = await experimentsResponse.json();
+        if (cancelled || version !== loadVersion) return;
         setRuns(prev => {
-          const existing = new Set(prev.map(r => `${r.experimentId}/${r.runId}`));
-          const fresh = parsedRuns.filter(r => !existing.has(`${r.experimentId}/${r.runId}`));
-          return fresh.length > 0 ? [...fresh, ...prev] : prev;
+          const loaded = savedRuns.map((run: any) => {
+            const existing = prev.find(item => item.runId === run.run_id);
+            return { ...savedRunToClient(run),
+              ...(existing ? { id: existing.id, color: existing.color, visible: existing.visible } : { color: nextRunColor() }) };
+          });
+          const storedIds = new Set(loaded.map((run: ExperimentRun) => run.runId));
+          return [...loaded, ...prev.filter(run => !storedIds.has(run.runId))];
         });
-        setExperiments(prev => {
-          const existing = new Set(prev.map(e => e.experimentId));
-          const fromRuns = savedRuns
-            .filter(run => !existing.has(run.experiment_id))
-            .map((run) => {
-              const meta = run.experiment_metadata || {};
-              const exp: Experiment = {
-                id: `saved-exp-${run.experiment_id}`,
-                experimentId: run.experiment_id,
-                name: run.experiment_id,
-                experimentType: run.experiment_id,
-                description: meta.description || '',
-                location: meta.location || '',
-                operator: meta.operator || '',
-                grid_spacing: meta.grid_spacing || '',
-                sensor_configuration: meta.sensor_configuration || '',
-                notes: meta.notes || '',
-                createdAt: coerceDate(run.start_time),
-              };
-              existing.add(run.experiment_id);
-              return exp;
-            });
-          return fromRuns.length > 0 ? [...fromRuns, ...prev] : prev;
-        });
-        setRuns(prev => prev.map(run => {
-          const savedExperiment = savedRuns.find(saved => saved.experiment_id === run.experimentId);
-          return savedExperiment ? { ...run, parentExperimentId: `saved-exp-${savedExperiment.experiment_id}` } : run;
-        }));
-        showToast(`Loaded ${parsedRuns.length} saved run${parsedRuns.length === 1 ? '' : 's'}`, 'info');
-      } catch (err: any) {
-        dbg('failed to load saved runs', err?.message ?? err);
+        setExperiments(savedExperiments.map((exp: any) => ({
+          id: `saved-exp-${exp.experiment_id}`, experimentId: exp.experiment_id,
+          name: exp.name || exp.experiment_id, experimentType: exp.experimentType || exp.experiment_id,
+          description: exp.description || '', location: exp.location || '', operator: exp.operator || '',
+          grid_spacing: exp.grid_spacing || '', sensor_configuration: exp.sensor_configuration || '',
+          notes: exp.notes || '', createdAt: new Date(),
+        })));
+      } catch (error: any) {
+        if (!cancelled && version === loadVersion) showToast(error.message || 'Unable to load saved runs', 'error');
       }
     }
 
+    window.addEventListener(ACCESS_CHANGED_EVENT, loadSavedRuns);
     loadSavedRuns();
     return () => {
       cancelled = true;
+      window.removeEventListener(ACCESS_CHANGED_EVENT, loadSavedRuns);
     };
   }, [showToast]);
 
@@ -661,6 +625,7 @@ const Home: React.FC = () => {
 
   // ── Stream handling ────────────────────────────────────────────────────────
   const handleToggleStream = useCallback(() => {
+    if (!isStreaming && !currentWriteToken() && !requestWriteToken()) return;
     if (connectionStatus === 'disconnected') {
       showToast('Connect first', 'error');
       return;
@@ -738,6 +703,7 @@ const Home: React.FC = () => {
 
     const dataPoint: SensorDataPoint = {
       ...simulatedTelemetryMetaRef.current,
+      runMode: 'simulated',
       device_id:          simulatedTelemetryMetaRef.current.device_id || connectionSettings.deviceId || 'sim-rover-001',
       experiment_id:      simulatedTelemetryMetaRef.current.experiment_id || 'SIM',
       run_id:             simulatedTelemetryMetaRef.current.run_id || 'sim-live',
@@ -789,82 +755,79 @@ const Home: React.FC = () => {
   // This avoids any sync issues between the two sides.
 
   const handleCreateExperiment = useCallback((data: { name: string; experimentType: string; description: string }) => {
-    const id = (crypto as any).randomUUID ? crypto.randomUUID() : `exp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const year = new Date().getFullYear();
-    setExperiments(prev => {
-      const code = `EXP-${year}-${String(prev.length + 1).padStart(3, '0')}`;
-      const exp: Experiment = {
-        id,
-        experimentId: code,
-        name: data.name,
-        experimentType: data.experimentType,
-        description: data.description,
-        location: '',
-        operator: '',
-        grid_spacing: '',
-        sensor_configuration: '',
-        notes: '',
-        createdAt: new Date(),
-      };
-      showToast(`Created experiment "${exp.name}"`, 'success');
-      return [exp, ...prev];
-    });
+    const code = `EXP-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 8)}`;
+    const id = `saved-exp-${code}`;
+    const experiment: Experiment = {
+      id, experimentId: code, ...data, location: '', operator: '', grid_spacing: '',
+      sensor_configuration: '', notes: '', createdAt: new Date(),
+    };
+    fetch(`/api/experiments/${encodeURIComponent(code)}/metadata`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    }).then(res => {
+      if (!res.ok) throw new Error('Experiment was not saved');
+      setExperiments(prev => [experiment, ...prev]);
+      showToast(`Saved experiment "${data.name}"`, 'success');
+    }).catch(error => showToast(error.message, 'error'));
     return id;
   }, [showToast]);
 
-  const handleDeleteExperiment = useCallback((id: string) => {
-    // Detach runs from this experiment but keep them — runs are owned independently.
-    setRuns(prev => prev.map(r => r.parentExperimentId === id ? { ...r, parentExperimentId: undefined } : r));
-    setExperiments(prev => prev.filter(e => e.id !== id));
-    if (selectedExperimentId === id) setSelectedExperimentId(null);
-  }, [selectedExperimentId]);
-
-  const handleAssignRunToExperiment = useCallback((runId: string, experimentId: string | null) => {
-    // Pure update — no mutation of the run object's fields beyond the FK.
-    setRuns(prev => prev.map(r => r.id === runId
-      ? { ...r, parentExperimentId: experimentId ?? undefined }
-      : r));
-  }, []);
-
-  const handleUpdateExperimentMetadata = useCallback((id: string, metadata: ExperimentMetadataUpdate) => {
+  const handleDeleteExperiment = useCallback(async (id: string) => {
     const experiment = experiments.find(exp => exp.id === id);
-    setExperiments(prev => prev.map(exp => exp.id === id ? { ...exp, ...metadata } : exp));
     if (!experiment) return;
+    try {
+      const response = await fetch(`/api/experiments/${encodeURIComponent(experiment.experimentId)}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error('Experiment was not removed');
+      setRuns(prev => prev.map(run => run.parentExperimentId === id ? { ...run, parentExperimentId: undefined } : run));
+      setExperiments(prev => prev.filter(exp => exp.id !== id));
+      if (selectedExperimentId === id) setSelectedExperimentId(null);
+    } catch (error: any) { showToast(error.message, 'error'); }
+  }, [experiments, selectedExperimentId, showToast]);
 
-    fetch(`/api/experiments/${encodeURIComponent(experiment.experimentId)}/metadata`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(metadata),
-    }).then((res) => {
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    }).catch((err) => {
-      dbg('failed to persist experiment metadata', err?.message ?? err);
-      showToast('Experiment metadata saved locally; server persistence failed', 'warning');
-    });
+  const handleAssignRunToExperiment = useCallback(async (runId: string, experimentId: string | null) => {
+    const run = runs.find(item => item.id === runId);
+    if (!run) return;
+    try {
+      if (run.persisted) {
+        const experiment = experiments.find(exp => exp.id === experimentId);
+        const response = await fetch(`/api/runs/${encodeURIComponent(String(run.experimentId))}/${encodeURIComponent(run.runId)}/metadata`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ assigned_experiment_id: experiment?.experimentId ?? null }),
+        });
+        if (!response.ok) throw new Error('Experiment assignment was not saved');
+      }
+      setRuns(prev => prev.map(item => item.id === runId ? { ...item, parentExperimentId: experimentId ?? undefined } : item));
+    } catch (error: any) { showToast(error.message, 'error'); }
+  }, [runs, experiments, showToast]);
+
+  const handleUpdateExperimentMetadata = useCallback(async (id: string, metadata: ExperimentMetadataUpdate) => {
+    const experiment = experiments.find(exp => exp.id === id);
+    if (!experiment) return;
+    // Patch only edited fields; public views omit private metadata.
+    const changes = Object.fromEntries(Object.entries(metadata).filter(([key, value]) => value !== experiment[key as keyof Experiment]));
+    if (!Object.keys(changes).length) return;
+    try {
+      const response = await fetch(`/api/experiments/${encodeURIComponent(experiment.experimentId)}/metadata`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(changes),
+      });
+      if (!response.ok) throw new Error('Experiment metadata was not saved');
+      setExperiments(prev => prev.map(exp => exp.id === id ? { ...exp, ...changes } : exp));
+    } catch (error: any) { showToast(error.message, 'error'); }
   }, [experiments, showToast]);
 
-  const handleUpdateRunMetadata = useCallback((id: string, metadata: Pick<ExperimentRun, 'location' | 'notes' | 'processing_status'>) => {
-    const run = runs.find(r => r.id === id);
-    setRuns(prev => prev.map(r => r.id === id ? { ...r, ...metadata } : r));
+  const handleUpdateRunMetadata = useCallback(async (id: string, metadata: Pick<ExperimentRun, 'location' | 'notes' | 'processing_status'>) => {
+    const run = runs.find(item => item.id === id);
     if (!run) return;
-
-    fetch(`/api/runs/${encodeURIComponent(String(run.experimentId))}/${encodeURIComponent(run.runId)}/metadata`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        location: metadata.location,
-        notes: metadata.notes,
-        start_time: run.startTime.toISOString(),
-        end_time: run.endTime?.toISOString(),
-        duration: run.duration ?? runDurationSeconds(run.startTime, run.endTime),
-        processing_status: metadata.processing_status,
-      }),
-    }).then((res) => {
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    }).catch((err) => {
-      dbg('failed to persist run metadata', err?.message ?? err);
-      showToast('Run metadata saved locally; server persistence failed', 'warning');
-    });
+    const changes = Object.fromEntries(Object.entries(metadata).filter(([key, value]) => value !== run[key as keyof ExperimentRun]));
+    if (!Object.keys(changes).length) return;
+    try {
+      if (run.persisted) {
+        const response = await fetch(`/api/runs/${encodeURIComponent(String(run.experimentId))}/${encodeURIComponent(run.runId)}/metadata`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(changes),
+        });
+        if (!response.ok) throw new Error('Run metadata was not saved');
+      }
+      setRuns(prev => prev.map(item => item.id === id ? { ...item, ...changes } : item));
+    } catch (error: any) { showToast(error.message, 'error'); }
   }, [runs, showToast]);
 
   // ── Recording session handlers ────────────────────────────────────────────
@@ -878,6 +841,7 @@ const Home: React.FC = () => {
     parentExperimentId?: string | null;
     notes?: string;
   }) => {
+    if (!currentWriteToken() && !requestWriteToken()) return;
     if (connectionStatus === 'disconnected') {
       showToast('Connect first before recording', 'error');
       return;
@@ -992,25 +956,30 @@ const Home: React.FC = () => {
     showToast(stoppedId ? `Recording stopped` : 'Stream stopped', 'success');
   }, [isStreaming, activeRunId, runs, experiments, showToast]);
 
-  const handleCreateExperimentForRun = useCallback((runId: string) => {
+  const handleCreateExperimentForRun = useCallback(async (runId: string) => {
     const name = window.prompt('New experiment name:', '')?.trim();
-    if (!name) return;
-    const id = (crypto as any).randomUUID ? crypto.randomUUID() : `exp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const year = new Date().getFullYear();
-    setExperiments(prev => {
-      const code = `EXP-${year}-${String(prev.length + 1).padStart(3, '0')}`;
-      const exp: Experiment = {
-        id, experimentId: code, name,
-        experimentType: 'Custom', description: '',
-        location: '', operator: '', grid_spacing: '',
-        sensor_configuration: '', notes: '',
-        createdAt: new Date(),
-      };
-      return [exp, ...prev];
-    });
-    setRuns(prev => prev.map(r => r.id === runId ? { ...r, parentExperimentId: id } : r));
-    showToast(`Created "${name}" and assigned run`, 'success');
-  }, [showToast]);
+    const run = runs.find(item => item.id === runId);
+    if (!name || !run) return;
+    const code = `EXP-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 8)}`;
+    const id = `saved-exp-${code}`;
+    try {
+      const response = await fetch(`/api/experiments/${encodeURIComponent(code)}/metadata`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, experimentType: 'Custom' }),
+      });
+      if (!response.ok) throw new Error('Experiment was not saved');
+      if (run.persisted) {
+        const assigned = await fetch(`/api/runs/${encodeURIComponent(String(run.experimentId))}/${encodeURIComponent(run.runId)}/metadata`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assigned_experiment_id: code }),
+        });
+        if (!assigned.ok) throw new Error('Run assignment was not saved');
+      }
+      setExperiments(prev => [{ id, experimentId: code, name, experimentType: 'Custom',
+        description: '', location: '', operator: '', grid_spacing: '', sensor_configuration: '', notes: '', createdAt: new Date() }, ...prev]);
+      setRuns(prev => prev.map(item => item.id === runId ? { ...item, parentExperimentId: id } : item));
+      showToast(`Saved "${name}" and assigned run`, 'success');
+    } catch (error: any) { showToast(error.message, 'error'); }
+  }, [runs, showToast]);
 
   const handleLoadMockData = useCallback(() => {
     setRuns(prev => {
@@ -1053,51 +1022,18 @@ const Home: React.FC = () => {
       }
 
       const data = await res.json();
-      const {
-        source, runId, experimentId, location, notes, warnings = [], points = [],
-      } = data;
-
-      if (points.length === 0) {
-        setUploadState('error');
-        setUploadError('No valid data rows found in the uploaded file.');
-        showToast('No data rows found', 'error');
-        return;
-      }
-
-      // Convert timestamp strings → Date objects
-      const parsedPoints: SensorDataPoint[] = points.map((p: any) => ({
-        ...p,
-        timestamp: new Date(p.timestamp),
-        runId,
-        experimentId,
-      }));
-
-      const firstTs = parsedPoints[0].timestamp;
-      const lastTs  = parsedPoints[parsedPoints.length - 1].timestamp;
-
-      const newRun: ExperimentRun = {
-        id:           `upload-${Date.now()}`,
-        runId,
-        experimentId,
-        mode:         'uploaded',
-        color:        nextRunColor(),
-        startTime:    firstTs instanceof Date ? firstTs : new Date(firstTs),
-        endTime:      lastTs  instanceof Date ? lastTs  : new Date(lastTs),
-        start_time:   firstTs instanceof Date ? firstTs : new Date(firstTs),
-        end_time:     lastTs  instanceof Date ? lastTs  : new Date(lastTs),
-        duration:     runDurationSeconds(firstTs instanceof Date ? firstTs : new Date(firstTs), lastTs instanceof Date ? lastTs : new Date(lastTs)),
-        points:       parsedPoints,
-        visible:      true,
-        location,
-        notes,
-        processingSource: source,
-        processing_status: source === 'raw' ? 'processed' : 'unprocessed',
-      };
-
-      setRuns(prev => [newRun, ...prev]);
+      if (data.saved !== true || !data.run) throw new Error('The server did not confirm durable storage.');
+      const newRun = { ...savedRunToClient(data.run), color: nextRunColor() };
+      setRuns(prev => [newRun, ...prev.filter(run => run.runId !== newRun.runId)]);
+      setExperiments(prev => prev.some(exp => exp.experimentId === newRun.experimentId) ? prev : [{
+        id: `saved-exp-${newRun.experimentId}`, experimentId: String(newRun.experimentId),
+        name: String(newRun.experimentId), experimentType: String(newRun.experimentId),
+        description: '', location: '', operator: '', grid_spacing: '', sensor_configuration: '', notes: '', createdAt: new Date(),
+      }, ...prev]);
+      setFilters({ minAnomaly: null, timeRange: 'all' });
       setUploadState('done');
-      showToast(`Loaded "${runId}" — ${parsedPoints.length} pts (${source === 'raw' ? 'pipeline' : 'direct'})`, 'success');
-      if (warnings.length > 0) showToast(warnings[0], 'warning');
+      showToast(data.duplicate ? `Run already saved: ${newRun.runId}` : `Saved ${newRun.runId}: ${newRun.points.length} samples`, 'success');
+      if (data.warnings?.length) showToast(data.warnings[0], 'warning');
 
       // Reset to idle after 4 s
       setTimeout(() => setUploadState('idle'), 4000);

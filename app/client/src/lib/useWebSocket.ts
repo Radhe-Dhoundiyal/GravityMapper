@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { WebSocketMessage } from "./types";
+import { currentWriteToken } from "./api";
 
 export type WebSocketConnectionStatus = 'connected' | 'disconnected' | 'reconnecting';
 
@@ -155,7 +156,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
   const sendMessage = useCallback((data: any) => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(typeof data === 'string' ? data : JSON.stringify(data));
+      const packet = typeof data === 'string' ? JSON.parse(data) : data;
+      socketRef.current.send(JSON.stringify({ ...packet, token: currentWriteToken() }));
       return true;
     }
     return false;
