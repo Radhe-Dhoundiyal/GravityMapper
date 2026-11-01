@@ -1,86 +1,53 @@
-# GADV — Gravitational Anomaly Detection Vehicle
+# GravityMapper
 
-GADV is an open-source scientific research platform for mapping local gravitational anomalies using low-cost MEMS sensors, satellite positioning, and a real-time web dashboard. The project investigates whether consumer-grade hardware can detect statistically meaningful gravitational mass anomalies when compared against GRACE satellite gravity baselines.
+GravityMapper is the web-based telemetry, visualization, and data-analysis component of GADV, a broader rover engineering project. Mechanical CAD, electronics, and PCB development are maintained separately.
 
-## Repository Structure
+[Live dashboard](https://gravitymapper.onrender.com/)
 
-```
-gadv/
-├── app/                    # Web dashboard (monorepo)
-│   ├── client/             # React + Vite frontend
-│   ├── server/             # Node.js + Express backend
-│   └── shared/             # Shared TypeScript schemas
-│
-├── hardware/               # ESP32 sensor node
-│   ├── sensors/            # Sensor specs and calibration
-│   ├── circuit/            # Schematics and PCB files
-│   └── rover/              # Mobile platform design
-│
-├── analysis/               # Data processing pipeline
-│   ├── scripts/            # Batch processing scripts (Python)
-│   └── notebooks/          # Jupyter analysis notebooks
-│
-├── data/                   # Survey datasets
-│   ├── raw/                # Unmodified field exports
-│   └── processed/          # Cleaned and calibrated data
-│
-├── experiments/            # Field work
-│   ├── protocols/          # Standardised measurement procedures
-│   └── logs/               # Per-experiment field records
-│
-├── docs/                   # Technical documentation
-│   ├── architecture.md     # System architecture
-│   ├── methodology.md      # Signal processing and anomaly calculation
-│   └── system-overview.md  # Full system description
-│
-└── paper/                  # Research manuscript
-    └── gadv_paper_draft.md # Working draft
+## Why I Built It
+
+I built GravityMapper to bring incoming rover readings, their locations, and run comparisons into one place. Seeing a stream of numbers is useful, but plotting it on a map and recording it as a run makes changes easier to inspect. The same interface supports live telemetry, synthetic examples, and imported CSV files.
+
+## What It Does
+
+The dashboard receives telemetry over WebSocket or HTTP, records runs, groups them into experiments, and displays statistics and plots. Maps can show points, interpolated heatmaps, gradients, and detected regions. A survey grid helps track coverage. Data and summaries can be exported as CSV, JSON, or a Markdown report.
+
+The Python pipeline processes raw sensor logs with tilt compensation, altitude and latitude corrections, smoothing, and outlier filtering. Processed CSV files can also be imported directly.
+
+## Technology and Layout
+
+The frontend uses React, TypeScript, Vite, Leaflet, and Recharts. Express serves the API, the WebSocket bridge, and the built frontend. Python processing uses NumPy and pandas.
+
+- `app/client/`: dashboard
+- `app/server/`: API, telemetry, CSV processing, and JSON run storage
+- `app/shared/`: shared schemas and types
+- `analysis/scripts/gravity_pipeline.py`: processing pipeline
+- `data/raw/sample_log_template.csv`: synthetic CSV example
+
+## Run Locally
+
+Use Node.js 24 and npm 11. From the repository root:
+
+```sh
+npm ci
+npm run dev
 ```
 
-## Web Dashboard
+Open <http://localhost:5000>. In PowerShell, use `npm.cmd` if execution policy blocks `npm`.
 
-The dashboard receives real-time data from the ESP32 sensor node via WebSocket, displays colour-coded anomaly readings on an interactive Leaflet map, and provides CSV/JSON data export.
+For raw CSV processing and Process Run, install Python 3.11+ and the analysis requirements:
 
-### Running in Development
-
-```bash
-NODE_ENV=development tsx app/server/index.ts
+```sh
+python -m pip install -r analysis/requirements.txt
+python analysis/scripts/gravity_pipeline.py data/raw/sample_log_template.csv
 ```
 
-### Deploying to Render
+Use `npm run check` and `npm run build` to check types and produce `dist/public` and `dist/index.js`. See the [deployment guide](RENDER_DEPLOYMENT.md) and [data reference](docs/data-format.md) for runtime details.
 
-```bash
-./build-render.sh          # Test the build locally
-```
+## Measurement Limits
 
-Then follow `RENDER_DEPLOYMENT.md` for full Render setup. The `render.yaml` service definition is already configured.
+Sensor-derived anomaly values are proxies, not calibrated gravitational measurements. Synthetic examples are demonstration data. Heatmaps, gradients, and confidence scores help inspect the input; they do not establish geological findings or detection accuracy.
 
-## ESP32 Integration
+## License
 
-The ESP32 firmware connects to the dashboard WebSocket endpoint (`/ws`) and streams data in the following format:
-
-```json
-{
-  "type": "anomalyData",
-  "data": {
-    "latitude": 37.7749,
-    "longitude": -122.4194,
-    "anomalyValue": 1.25,
-    "timestamp": "2025-04-01T10:30:00.000Z"
-  }
-}
-```
-
-See `hardware/` for sensor wiring, circuit schematics, and rover platform design.
-
-## Research Goals
-
-- Demonstrate sub-10 mGal anomaly detection with hardware costing under $100
-- Produce geo-referenced gravity maps comparable to published geological surveys
-- Provide an open platform for citizen science gravity research
-
-See `docs/methodology.md` for the full signal processing approach and uncertainty budget, and `paper/gadv_paper_draft.md` for the evolving research manuscript.
-
-## Licence
-
-MIT — see `LICENSE` for details.
+See [LICENSE](LICENSE).

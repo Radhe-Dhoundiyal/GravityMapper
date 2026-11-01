@@ -1,5 +1,7 @@
 import { ExperimentRun, SensorDataPoint } from './types';
 
+// Synthetic demonstration runs; these values are not field measurements.
+
 // ── helpers ────────────────────────────────────────────────────────────────────
 function rnd(mean: number, std: number): number {
   // Box-Muller
@@ -116,7 +118,7 @@ export const MOCK_RUNS: ExperimentRun[] = [
     startTime: new Date('2025-04-01T10:00:00Z'),
     endTime:   new Date('2025-04-01T10:00:06Z'),
     location: 'lab-bench',
-    notes: 'Built-in sample data — E1 stationary noise floor',
+    notes: 'Synthetic sample data — E1 stationary noise floor',
     points: buildE1(),
     visible: true,
     color: '#3B82F6',
@@ -129,7 +131,7 @@ export const MOCK_RUNS: ExperimentRun[] = [
     startTime: new Date('2025-04-03T14:00:00Z'),
     endTime:   new Date('2025-04-03T14:01:40Z'),
     location: 'campus-north',
-    notes: 'Built-in sample data — E3 smooth transect',
+    notes: 'Synthetic sample data — E3 smooth transect',
     points: buildE3(),
     visible: true,
     color: '#F97316',
@@ -142,7 +144,7 @@ export const MOCK_RUNS: ExperimentRun[] = [
     startTime: new Date('2025-04-10T09:00:00Z'),
     endTime:   new Date('2025-04-10T09:00:07.5Z'),
     location: 'fixed-point',
-    notes: 'Built-in sample data — E5 repeatability run 1',
+    notes: 'Synthetic sample data — E5 repeatability run 1',
     points: buildE5r1(),
     visible: false,
     color: '#8B5CF6',
@@ -155,7 +157,7 @@ export const MOCK_RUNS: ExperimentRun[] = [
     startTime: new Date('2025-04-11T11:30:00Z'),
     endTime:   new Date('2025-04-11T11:30:07.5Z'),
     location: 'fixed-point',
-    notes: 'Built-in sample data — E5 repeatability run 2',
+    notes: 'Synthetic sample data — E5 repeatability run 2',
     points: buildE5r2(),
     visible: false,
     color: '#10B981',

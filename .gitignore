@@ -1,7 +1,6 @@
 node_modules
 dist
 .DS_Store
-server/public
 vite.config.ts.*
 *.tar.gz
 
@@ -9,3 +8,20 @@ vite.config.ts.*
 .env.*
 .env.local
 arduino-cli.exe
+
+# Local telemetry, uploads, and derived outputs
+uploads/
+data/runs/*
+!data/runs/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/raw/*
+!data/raw/sample_log_template.csv
+
+# Python environments and caches
+.venv/
+.pythonlibs/
+__pycache__/
+*.py[cod]
+*.tsbuildinfo
+*.log

@@ -47,23 +47,19 @@ app.use((req, res, next) => {
     throw err;
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
+  // Register the frontend fallback after the API routes.
   if (app.get("env") === "development") {
     await setupVite(app, server);
   } else {
     serveStatic(app);
   }
 
-  // Bind to PORT injected by the host (Render, Railway, Fly, etc.) and fall
-  // back to 5000 for local dev / Replit. Same process serves API, WebSocket
-  // (/ws), and the static frontend (in production, via serveStatic above).
+  // Serve the API, WebSocket, and frontend on the host's port.
   const port = Number(process.env.PORT) || 5000;
   server.listen({
     port,
     host: "0.0.0.0",
-    reusePort: true,
+    reusePort: process.platform !== "win32",
   }, () => {
     log(`serving on port ${port}`);
   });
