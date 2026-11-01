@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import express from "express";
+import { WebSocket } from "ws";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { parseCsvContent, parseCsvRows } from "../app/server/csvProcessor";
