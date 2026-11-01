@@ -367,7 +367,7 @@ function detectAnomalyRegions(grid: InterpolatedGrid, sourcePoints: HeatmapPoint
         peakAnomalyValue: peak,
         areaSqMeters,
         pointDensity: nearbyPointCount / Math.max(1, areaSqMeters),
-        confidence: 0,
+        relativeScore: 0,
         cellCount,
       });
     }
@@ -384,9 +384,9 @@ function detectAnomalyRegions(grid: InterpolatedGrid, sourcePoints: HeatmapPoint
   return regions
     .map((region, index) => ({
       ...region,
-      confidence: maxScore > 0 ? Math.max(0, Math.min(1, rawScores[index] / maxScore)) : 0,
+      relativeScore: maxScore > 0 ? Math.max(0, Math.min(1, rawScores[index] / maxScore)) : 0,
     }))
-    .sort((a, b) => b.confidence - a.confidence);
+    .sort((a, b) => b.relativeScore - a.relativeScore);
 }
 
 function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
@@ -649,7 +649,7 @@ const MapView: React.FC<MapViewProps> = ({
             <div class="font-semibold mb-1">${region.type === 'positive' ? 'Positive' : 'Negative'} anomaly</div>
             <div>Peak: <b>${region.peakAnomalyValue.toFixed(3)}</b> mGal</div>
             <div>Area: ${(region.areaSqMeters / 1000).toFixed(2)}k m²</div>
-            <div>Confidence: ${region.confidence.toFixed(2)}</div>
+            <div>Relative score: ${region.relativeScore.toFixed(2)}</div>
             <div class="text-gray-500 mt-1">${region.centerLat.toFixed(6)}°, ${region.centerLng.toFixed(6)}°</div>
           </div>
         `);
