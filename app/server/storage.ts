@@ -1,7 +1,4 @@
-import { anomalyPoints, type AnomalyPoint, type InsertAnomalyPoint, users, type User, type InsertUser } from "@shared/schema";
-
-// modify the interface with any CRUD methods
-// you might need
+import { type AnomalyPoint, type InsertAnomalyPoint, type User, type InsertUser } from "@shared/schema";
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;

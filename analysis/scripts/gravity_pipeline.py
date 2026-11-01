@@ -4,7 +4,7 @@ gravity_pipeline.py — GADV Analysis Pipeline
 =============================================
 Processes raw rover sensor logs and computes gravity-proxy anomaly values.
 
-Input  : CSV files in data/raw/ following the schema in data/README.md
+Input  : CSV files in data/raw/ following the schema in docs/data-format.md
 Output : Processed CSVs in data/processed/  +  data/processed/run_summary.csv
 
 Usage
@@ -555,7 +555,7 @@ def process_file(
     log(f"      Detected sample rate: {sample_rate} Hz")
 
     # 2. Unit conversion
-    log("[2/9] Converting accelerometer units: g → m/s² ...")
+    log("[2/9] Converting accelerometer units: g to m/s^2 ...")
     df = convert_units(df)
 
     # 3. Tilt compensation
@@ -570,7 +570,7 @@ def process_file(
     gps_frac = (df["gps_fix_quality"].fillna(0) >= 1).mean()
     log(f"      GPS fix available on {gps_frac:.1%} of samples.")
     if gps_frac < 0.5:
-        log("      WARNING: <50% GPS fix — using barometric altitude for most samples.")
+        log("      WARNING: <50% GPS fix; using barometric altitude for most samples.")
 
     # 5. Latitude correction
     log("[5/9] Computing WGS-84 Somigliana latitude correction ...")
@@ -599,7 +599,7 @@ def process_file(
     df = smooth(df, sample_rate, smooth_window_s)
 
     # 9. MAD outlier rejection
-    log(f"[9/9] MAD outlier rejection (threshold: {MAD_THRESHOLD}×MAD) ...")
+    log(f"[9/9] MAD outlier rejection (threshold: {MAD_THRESHOLD}*MAD) ...")
     df = mad_rejection(df, MAD_THRESHOLD)
     n_outliers = int(df["outlier_flag"].sum()) if "outlier_flag" in df.columns else 0
     n_final    = int(df["anomaly_final_mgal"].notna().sum())
@@ -608,14 +608,14 @@ def process_file(
     # Summary metrics
     summary = compute_summary(df, raw_path.stem, smooth_window_s, git_hash)
     log("")
-    log("  ── Summary ───────────────────────────────────────")
+    log("  -- Summary ---------------------------------------")
     log(f"  Run          : {summary['run_id']}")
     log(f"  Experiment   : {summary['experiment_id']}")
     log(f"  Duration     : {summary['run_duration_s']} s")
-    log(f"  Static N     : {summary['n_samples_static']:,} → MAD N: {summary['n_samples_after_mad']:,}")
+    log(f"  Static N     : {summary['n_samples_static']:,} -> MAD N: {summary['n_samples_after_mad']:,}")
     log(f"  Anomaly mean : {summary['anomaly_mean_mgal']} mGal")
     log(f"  Anomaly std  : {summary['anomaly_std_mgal']} mGal")
-    log("  ──────────────────────────────────────────────────")
+    log("  --------------------------------------------------")
 
     # Export
     out_path = export_processed(df, raw_path)
