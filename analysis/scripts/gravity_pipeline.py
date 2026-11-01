@@ -53,7 +53,7 @@ import pandas as pd
 # Constants
 # ---------------------------------------------------------------------------
 
-PIPELINE_VERSION = "1.0.0"
+PIPELINE_VERSION = "1.1.0"
 
 G_MS2 = 9.80665          # standard gravity [m/s²]
 MGAL_PER_MS2 = 100_000   # 1 m/s² = 100 000 mGal
@@ -290,10 +290,16 @@ def latitude_correction(df: pd.DataFrame) -> pd.DataFrame:
         k    = 0.001 931 851 386 39
         e²   = 0.006 694 379 990 14
 
-    When GPS latitude is unavailable (no fix), the column is NaN and the
-    anomaly calculation will also be NaN for those rows.
+    A valid GPS fix, latitude, and longitude are required. Invalid or
+    unavailable GPS positions produce NaN theoretical gravity; coordinates
+    alone are not evidence of a fix.
     """
-    lat_rad = np.radians(df["gps_lat"].to_numpy())
+    valid_position = (
+        (df["gps_fix_quality"] >= 1)
+        & df["gps_lat"].between(-90, 90)
+        & df["gps_lon"].between(-180, 180)
+    )
+    lat_rad = np.radians(df["gps_lat"].where(valid_position).to_numpy())
     sin2 = np.sin(lat_rad) ** 2
 
     with np.errstate(invalid="ignore"):
@@ -315,9 +321,9 @@ def compute_anomaly(df: pd.DataFrame) -> pd.DataFrame:
 
         Δg = g_vert_mgal − g_wgs84_mgal + free_air_corr_mgal
 
-    When GPS latitude is unavailable (NaN g_wgs84_mgal), fall back to
-    a latitude-uncorrected proxy using only the tilt-compensated reading
-    and the free-air correction, labelled anomaly_no_lat_mgal.
+    The primary anomaly is defined ONLY when the latitude, vertical reading,
+    and altitude correction are valid. The uncorrected vertical proxy is
+    retained as a diagnostic in a separate column, never as an anomaly.
     """
     df["anomaly_proxy_mgal"] = (
         df["g_vert_mgal"]
@@ -325,13 +331,13 @@ def compute_anomaly(df: pd.DataFrame) -> pd.DataFrame:
         + df["free_air_corr_mgal"]
     )
 
-    # Fallback when no GPS fix
+    # Diagnostic only: an absolute vertical-gravity proxy without a WGS-84
+    # reference is not a gravity anomaly and must never enter final results.
     df["anomaly_no_lat_mgal"] = df["g_vert_mgal"] + df["free_air_corr_mgal"]
 
-    # Use full anomaly where available, fallback otherwise
-    df["anomaly_best_mgal"] = df["anomaly_proxy_mgal"].where(
-        df["g_wgs84_mgal"].notna(), df["anomaly_no_lat_mgal"]
-    )
+    # Retain the legacy column name for CSV compatibility, but never promote
+    # the latitude-uncorrected diagnostic to the preferred anomaly.
+    df["anomaly_best_mgal"] = df["anomaly_proxy_mgal"]
 
     return df
 
@@ -358,7 +364,8 @@ def apply_static_filter(df: pd.DataFrame) -> pd.DataFrame:
 def smooth(df: pd.DataFrame, sample_rate_hz: float, window_s: float) -> pd.DataFrame:
     """
     Apply a centred moving-average over `window_s` seconds to the static anomaly.
-    Only static samples contribute; NaN values are skipped by min_periods=1.
+    Only static samples contribute. A missing anomaly MUST remain missing
+    at its own sample, even if neighboring values are available.
 
     The window is converted to the nearest odd number of samples so that the
     centred window is symmetric.
@@ -368,11 +375,14 @@ def smooth(df: pd.DataFrame, sample_rate_hz: float, window_s: float) -> pd.DataF
         window_samples += 1          # ensure odd → symmetric centred window
     window_samples = max(window_samples, 1)
 
-    df["anomaly_smoothed_mgal"] = (
+    smoothed = (
         df["anomaly_static_mgal"]
         .rolling(window=window_samples, center=True, min_periods=1)
         .mean()
     )
+    # A centered rolling average otherwise fills missing/non-static rows from
+    # adjacent samples and falsely promotes them to valid anomalies.
+    df["anomaly_smoothed_mgal"] = smoothed.where(df["anomaly_static_mgal"].notna(), np.nan)
 
     df.attrs["smooth_window_samples"] = window_samples
     df.attrs["smooth_window_s"] = window_s
