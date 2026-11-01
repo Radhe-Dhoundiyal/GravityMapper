@@ -48,16 +48,37 @@ function numberOr(value: unknown, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function boolInt(value: unknown, fallback = true): 0 | 1 {
-  if (typeof value === "boolean") return value ? 1 : 0;
-  if (value === 0 || value === "0" || value === "false") return 0;
-  if (value === 1 || value === "1" || value === "true") return 1;
-  return fallback ? 1 : 0;
+// An empty CSV cell means "not measured". Never synthesize neutral sensor
+// values: they can make an incomplete run look like a successful measurement.
+function optionalNumber(value: unknown): number | "" {
+  if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) return "";
+  if (typeof value !== "number" && typeof value !== "string") return "";
+  const number = Number(value);
+  return Number.isFinite(number) ? number : "";
 }
 
-function isoTimestamp(value: unknown, fallbackMs: number): string {
-  const date = value ? new Date(String(value)) : new Date(fallbackMs);
-  return Number.isNaN(date.getTime()) ? new Date(fallbackMs).toISOString() : date.toISOString();
+function optionalFlag(value: unknown): 0 | 1 | "" {
+  if (value === true || value === 1 || value === "1" || value === "true") return 1;
+  if (value === false || value === 0 || value === "0" || value === "false") return 0;
+  return "";
+}
+
+function requiredTimestamp(value: unknown, row: number): string {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    throw new Error(`Cannot process run: sample ${row} has no timestamp.`);
+  }
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Cannot process run: sample ${row} has an invalid timestamp.`);
+  }
+  return date.toISOString();
+}
+
+function originalField(point: Record<string, any>, field: string): unknown {
+  const source = point.source_fields;
+  if (!source || typeof source !== "object") return undefined;
+  const key = Object.keys(source).find(k => k.trim().toLowerCase() === field);
+  return key ? source[key] : undefined;
 }
 
 async function findPython(): Promise<string | null> {
@@ -78,7 +99,7 @@ async function findPython(): Promise<string | null> {
   return null;
 }
 
-function runToRawCsv(run: StoredRunFile): string {
+export function runToRawCsv(run: StoredRunFile): string {
   const headers = [
     "timestamp_utc", "run_id", "experiment_id", "sample_index",
     "ax_raw", "ay_raw", "az_raw",
@@ -91,35 +112,35 @@ function runToRawCsv(run: StoredRunFile): string {
   ];
 
   const rows = run.points.map((point, index) => {
-    const timestamp = isoTimestamp(point.timestamp, Date.now() + index);
-    const hasGps = Number.isFinite(Number(point.latitude)) && Number.isFinite(Number(point.longitude));
-    const temperature = numberOr(point.temperature, 0);
+    const timestamp = requiredTimestamp(point.timestamp, index + 1);
 
+    // Keep sensor channels distinct. "temperature" or "altitude" alone
+    // does not establish that both the IMU and barometer measured them.
     return [
       timestamp,
       run.run_id,
       run.experiment_id,
       index,
-      numberOr(point.ax, 0),
-      numberOr(point.ay, 0),
-      numberOr(point.az, 1),
-      numberOr(point.gx, 0),
-      numberOr(point.gy, 0),
-      numberOr(point.gz, 0),
-      temperature,
-      numberOr(point.pressure, 1013.25),
-      temperature,
-      numberOr(point.altitude, 0),
-      numberOr(point.latitude, 0),
-      numberOr(point.longitude, 0),
-      numberOr(point.altitude, 0),
-      numberOr(point.hdop, 0),
-      hasGps ? numberOr(point.fixQuality, 1) : 0,
-      numberOr(point.satellites, 0),
-      boolInt(point.platformStationary, true),
-      1,
-      numberOr(point.anomalyValue, 0),
-      "",
+      optionalNumber(point.ax),
+      optionalNumber(point.ay),
+      optionalNumber(point.az),
+      optionalNumber(point.gx),
+      optionalNumber(point.gy),
+      optionalNumber(point.gz),
+      optionalNumber(originalField(point, "temp_mpu")),
+      optionalNumber(point.pressure),
+      optionalNumber(originalField(point, "temp_bmp")),
+      optionalNumber(originalField(point, "altitude_baro_m")),
+      optionalNumber(point.latitude),
+      optionalNumber(point.longitude),
+      optionalNumber(originalField(point, "gps_alt_m")),
+      optionalNumber(point.hdop),
+      optionalNumber(point.fixQuality),
+      optionalNumber(point.satellites),
+      optionalFlag(point.platformStationary),
+      optionalFlag(originalField(point, "isolation_active")),
+      optionalNumber(originalField(point, "anomaly_value_mgal") ?? point.anomalyValue),
+      originalField(point, "notes") ?? "",
     ].map(csvEscape).join(",");
   });
 
@@ -150,10 +171,14 @@ export async function processStoredRun(experimentId: string, runId: string): Pro
     throw new Error("Stored run has no points to process.");
   }
 
+  // Validate before allocating temporary files or calling the pipeline.
+  // Missing values remain empty in the CSV so the scientific calculation
+  // rejects unusable samples rather than creating plausible defaults.
+  const rawCsv = runToRawCsv(run);
   await fs.promises.mkdir(path.join(RAW_RUN_DIR, safeExperiment), { recursive: true });
   const jobName = `${safeRun}-${randomUUID()}`;
   const rawCsvPath = path.join(RAW_RUN_DIR, safeExperiment, `${jobName}.csv`);
-  await fs.promises.writeFile(rawCsvPath, runToRawCsv(run), "utf8");
+  await fs.promises.writeFile(rawCsvPath, rawCsv, "utf8");
 
   await execFileAsync(python, [PIPELINE_SCRIPT, rawCsvPath], { timeout: 120_000 });
 
