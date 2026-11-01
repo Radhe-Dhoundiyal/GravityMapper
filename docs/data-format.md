@@ -23,11 +23,11 @@ This example is synthetic. The HTTP route also accepts the `data` object directl
 
 For Arduino HTTP clients, add `http.addHeader("Authorization", String("Bearer ") + deviceToken);` before the existing POST, with `deviceToken` supplied privately and a matching `device_id`. WebSocket devices use the same envelope and put that token alongside `type` and `data`.
 
-The server commits full telemetry to PostgreSQL; missing IDs default to `unassigned/live`. `GET /api/runs` returns saved runs and `GET /api/experiments` returns saved experiments. `POST /api/process-run` takes `experiment_id` and `run_id`, converts a stored run to temporary raw CSV, and invokes the Python pipeline. Derived points are stored separately; source readings remain intact.
+The server commits full telemetry to PostgreSQL; missing IDs default to `unassigned/live`. `GET /api/runs` returns saved runs and `GET /api/experiments` returns saved experiments. `POST /api/process-run` takes `experiment_id` and `run_id`, converts a stored run to temporary raw CSV, and invokes the Python pipeline. Missing sensor fields stay empty (not zero-filled); the pipeline cannot reliably calculate corrected anomalies without measured acceleration, usable altitude and a valid GPS position/fix. Derived points are stored separately; source readings remain intact.
 
 ## CSV Workflow
 
-Upload CSV files through the Runs tab or as multipart form field `file` to `POST /api/upload-csv` (50 MB limit). Raw uploads go through `analysis/scripts/gravity_pipeline.py`; processed CSVs containing markers such as `anomaly_final_mgal` are parsed directly. The server resolves anomaly columns in this order: `anomaly_final_mgal`, `anomaly_best_mgal`, then `anomaly_value_mgal` or `anomalyValue`.
+Upload CSV files through the Runs tab or as multipart form field `file` to `POST /api/upload-csv` (50 MB limit). Raw uploads go through `analysis/scripts/gravity_pipeline.py`; processed CSVs containing markers such as `anomaly_final_mgal` are parsed directly. The server selects the highest-priority anomaly column present in the CSV: `anomaly_final_mgal`, `anomaly_best_mgal`, then `anomaly_value_mgal` or `anomalyValue`. If a row's selected value is missing or invalid, the upload is rejected rather than silently substituting a lower-priority value.
 
 Uploads require administrative write authorization and a configured database. Each CSV must contain one run/experiment and valid timestamps, coordinates, and anomaly values. Malformed rows reject the whole upload rather than silently dropping observations. Original bytes and all source columns are retained, including fields not used by the map. `GET /api/runs/<run-id>/original.csv` requires an administrative bearer token and downloads the exact original upload; device tokens and credentials in URLs are not accepted. Public run/experiment reads omit raw source fields and private metadata while retaining the dashboard's normalized measurements. Use optional multipart fields `reported_origin` and `provenance_notes` to record provenance; this is user-reported and is not independent measurement verification. Existing source labels are retained. Exact repeated imports return `duplicate: true`; different data with the same run ID returns HTTP 409.
 
@@ -42,3 +42,13 @@ python analysis/scripts/gravity_pipeline.py --batch
 ```
 
 The pipeline writes `<input-stem>_processed.csv` and updates `run_summary.csv` under `data/processed/`. Batch mode skips the example template. Runtime data and generated outputs are ignored by Git. Built-in dashboard examples are also synthetic; processing and visualizing them does not turn them into measured data.
+
+## Scientific Integrity and Missing Data
+
+Do not infer physical sensor values from absent fields. Run reprocessing writes empty CSV cells for unknown IMU axes, pressure, temperatures, GPS quality, altitude and stationary/isolation flags. It never invents a timestamp, a 1g vertical reading, standard-atmosphere pressure, a GPS fix, or a stationary state. An unavailable input may make a corrected anomaly impossible; this is preferable to an apparently plausible but fabricated value.
+
+The Python pipeline computes `anomaly_proxy_mgal` only when the measured inputs, altitude correction and WGS-84 latitude correction are valid. A valid GPS fix, latitude and longitude are necessary for its WGS-84 term. `anomaly_no_lat_mgal` is retained solely as a diagnostic vertical-gravity proxy and **must not** be interpreted as an anomaly. For CSV compatibility, `anomaly_best_mgal` now equals the corrected proxy only, and missing/filtered samples stay missing through smoothing and outlier rejection. The pipeline is still an uncalibrated, sensor-derived proxy; it does not demonstrate geophysical measurement accuracy.
+
+The map labels region rankings **Relative score** rather than statistical confidence. A score of 1 means highest *within the currently selected regions*, not a 100% probability of a real anomaly. CSV/JSON exports and Markdown reports use `relative_score`.
+
+The test suite includes a dedicated PostgreSQL service in GitHub Actions and never uses the production Neon database. Run `npm run test:integrity`, `npm run test:pipeline` (Python NumPy and pandas), and `npm run test:persistence` with a separate database named `*_test` when testing locally. The integration suite intentionally skips if `TEST_DATABASE_URL` is absent outside CI.
