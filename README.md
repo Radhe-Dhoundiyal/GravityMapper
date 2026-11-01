@@ -51,6 +51,10 @@ Use `npm run check` and `npm run build` to check types and produce `dist/public`
 
 Sensor-derived anomaly values are proxies, not calibrated gravitational measurements. Synthetic examples are demonstration data. Heatmaps, gradients, and relative region scores help inspect the input; they do not establish geological findings or detection accuracy.
 
+## Development
+
+I set the goals and data workflows, contributed original code, and directed testing and revisions. ChatGPT, Codex and Replit Agent contributed substantial software implementation and debugging.
+
 ## License
 
 See [LICENSE](LICENSE).
