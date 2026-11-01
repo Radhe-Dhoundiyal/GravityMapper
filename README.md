@@ -49,7 +49,7 @@ Use `npm run check` and `npm run build` to check types and produce `dist/public`
 
 ## Measurement Limits
 
-Sensor-derived anomaly values are proxies, not calibrated gravitational measurements. Synthetic examples are demonstration data. Heatmaps, gradients, and confidence scores help inspect the input; they do not establish geological findings or detection accuracy.
+Sensor-derived anomaly values are proxies, not calibrated gravitational measurements. Synthetic examples are demonstration data. Heatmaps, gradients, and relative region scores help inspect the input; they do not establish geological findings or detection accuracy.
 
 ## License
 
