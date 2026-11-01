@@ -1,17 +1,13 @@
 import { ExperimentRun, SensorDataPoint } from "./types";
 
 /**
- * Resolve the best-available anomaly signal for a single sample.
- *
- * The server-side CSV processor already resolves the upstream priority
- *   anomaly_final_mgal → anomaly_best_mgal → anomaly_value_mgal
- * into `anomalyValue`. On the client we therefore only need to fall back to
- * `anomalySmoothed` when `anomalyValue` is missing/non-finite.
+ * Only use the selected anomaly value. A missing/rejected anomaly must not
+ * be silently replaced by an intermediate smoothed value for statistics.
  */
 export function getAnomalyValue(p: SensorDataPoint): number | null {
-  if (p.anomalyValue != null && isFinite(p.anomalyValue)) return p.anomalyValue;
-  if (p.anomalySmoothed != null && isFinite(p.anomalySmoothed)) return p.anomalySmoothed;
-  return null;
+  return typeof p.anomalyValue === "number" && Number.isFinite(p.anomalyValue)
+    ? p.anomalyValue
+    : null;
 }
 
 /** Return the median of a numeric array (does NOT mutate input). */
