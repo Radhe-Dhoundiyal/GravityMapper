@@ -119,6 +119,14 @@ export function parseCsvContent(content: string, originalName: string): UploadRe
   const records = parseCsvRows(content);
   const rows = records.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => [norm(key), value])));
   const first = rows[0];
+  // Resolve a *column*, not a per-row fallback: a blank or rejected final
+  // value must never be replaced with a less-corrected anomaly for that row.
+  const anomalyColumn = [
+    "anomaly_final_mgal", "anomaly_best_mgal",
+    "anomaly_value_mgal", "anomalyvalue", "anomaly_value",
+  ].find(key => Object.prototype.hasOwnProperty.call(first, key));
+  if (!anomalyColumn) throw new Error("CSV needs an explicit anomaly column");
+  const selectedAnomalyField = COL_MAP[anomalyColumn];
   const runId = first.run_id || first.runid || path.basename(originalName, ".csv");
   const experimentId = first.experiment_id || first.experimentid || "CAL";
   for (const row of rows) {
@@ -141,12 +149,12 @@ export function parseCsvContent(content: string, originalName: string): UploadRe
         if (Number.isFinite(value)) point[field] = value;
       }
     }
-    point.anomalyValue = point.__prio_final ?? point.__prio_best ?? point.__prio_raw;
+    point.anomalyValue = point[selectedAnomalyField];
     delete point.__prio_final; delete point.__prio_best; delete point.__prio_raw;
     if (!Number.isFinite(point.latitude) || Math.abs(point.latitude) > 90 ||
         !Number.isFinite(point.longitude) || Math.abs(point.longitude) > 180 ||
         !Number.isFinite(point.anomalyValue) || !point.timestamp || !Number.isFinite(Date.parse(point.timestamp))) {
-      throw new Error(`CSV row ${index + 2} needs valid coordinates, timestamp, and anomaly value; no rows were saved`);
+      throw new Error(`CSV row ${index + 2} needs valid coordinates, timestamp, and ${anomalyColumn}; no rows were saved`);
     }
     point.device_id = row.device_id || "unknown";
     point.experiment_id = experimentId;

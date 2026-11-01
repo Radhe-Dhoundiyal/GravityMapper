@@ -139,7 +139,7 @@ function anomalyExportRows(regions: AnomalyRegion[]) {
     peak_anomaly: region.peakAnomalyValue,
     area: region.areaSqMeters,
     point_density: region.pointDensity,
-    confidence: region.confidence,
+    relative_score: region.relativeScore,
   }));
 }
 
@@ -302,9 +302,9 @@ function buildMarkdownReport(args: {
 
   lines.push('', '## Detected Anomaly Regions');
   if (anomalyRegions.length === 0) {
-    lines.push('No statistically significant anomaly regions were detected under the current threshold settings.');
+    lines.push('No regions exceeded the current exploratory mean +/- 2 sigma threshold under these settings.');
   } else {
-    lines.push('| Anomaly ID | Type | Center latitude | Center longitude | Peak anomaly | Area | Point density | Confidence |');
+    lines.push('| Anomaly ID | Type | Center latitude | Center longitude | Peak anomaly | Area | Point density | Relative score |');
     lines.push('| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |');
     anomalyRegions.forEach(region => {
       lines.push([
@@ -315,7 +315,7 @@ function buildMarkdownReport(args: {
         reportNumber(region.peakAnomalyValue),
         reportNumber(region.areaSqMeters, 1),
         reportNumber(region.pointDensity, 3),
-        reportNumber(region.confidence, 3),
+        reportNumber(region.relativeScore, 3),
       ].join(' | ').replace(/^/, '| ').replace(/$/, ' |'));
     });
   }
@@ -328,7 +328,7 @@ function buildMarkdownReport(args: {
     '## Notes / Limitations',
     '- This report is generated from the dashboard state at export time.',
     '- Detected anomaly regions depend on the current interpolation, threshold, filtering, and visible data settings.',
-    '- Confidence scores are relative dashboard scores, not externally validated probabilities.',
+    '- Relative scores are normalized against the currently visible detected regions; they are not probabilities of detection or calibrated uncertainty estimates.',
     '- Consumer-grade MEMS, GNSS, and barometric sensors require calibration and repeat runs before scientific conclusions are drawn.',
     '- Markdown export is provided for review and documentation; PDF generation is not included.',
     '',
@@ -1193,7 +1193,7 @@ const Home: React.FC = () => {
       showToast('No detected anomalies to export', 'error');
       return;
     }
-    const headers = ['anomaly_id', 'type', 'center_lat', 'center_lng', 'peak_anomaly', 'area', 'point_density', 'confidence'];
+    const headers = ['anomaly_id', 'type', 'center_lat', 'center_lng', 'peak_anomaly', 'area', 'point_density', 'relative_score'];
     const csv = [
       headers.join(','),
       ...rows.map(row => headers.map(header => csvEscape(row[header as keyof typeof row])).join(',')),
@@ -1537,7 +1537,7 @@ const Home: React.FC = () => {
                     <span className="text-gray-400">/</span>
                     <span>{Math.round(region.areaSqMeters)} m2</span>
                     <span className="text-gray-400">/</span>
-                    <span>conf {region.confidence.toFixed(2)}</span>
+                    <span title="Relative to the current displayed regions; not a probability">score {region.relativeScore.toFixed(2)}</span>
                   </div>
                 ))
               )}

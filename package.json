@@ -12,7 +12,9 @@
     "db:migrate": "tsx app/server/migrate.ts",
     "db:import-json": "tsx app/server/importLegacyRuns.ts",
     "test:persistence": "tsx --test tests/persistence.test.ts",
-    "import:csv": "tsx scripts/importCsv.ts"
+    "import:csv": "tsx scripts/importCsv.ts",
+    "test:integrity": "tsx --test tests/integrity.test.ts",
+    "test:pipeline": "python -m unittest discover -s tests -p test_gravity_pipeline.py -v"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

@@ -121,7 +121,7 @@ export interface AnomalyRegion {
   peakAnomalyValue: number;
   areaSqMeters: number;
   pointDensity: number;
-  confidence: number;
+  relativeScore: number;
   cellCount: number;
 }
 

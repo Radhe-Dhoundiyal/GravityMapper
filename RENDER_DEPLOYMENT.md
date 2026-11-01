@@ -24,7 +24,7 @@ For ESP32 and Wokwi telemetry, configure `GADV_DEVICE_TOKENS` as a private JSON 
 
 Public dashboard reads and WebSocket broadcasts contain normalized measurements and run/experiment identifiers needed for maps, plots, statistics, and grouping. Original source columns, source observations, device IDs, provenance details, and private notes/operator metadata are omitted. Administrative bearer-authenticated reads include full metadata for editing. Missing or malformed credentials fail closed.
 
-For local testing, set `TEST_DATABASE_URL` to a separate PostgreSQL database whose name ends in `_test`, then run `npm run test:persistence`. Never point that variable at a production database. Review the migration and database configuration before deploying; a redeployment must retain the same persistent `DATABASE_URL`.
+For local testing, set `TEST_DATABASE_URL` to a separate PostgreSQL database whose name ends in `_test`, then run `npm run test:persistence`. The GitHub Actions integrity workflow provisions an isolated PostgreSQL service and runs this suite on pull requests, alongside sensor and Python pipeline regressions. Never point that variable at a production database. Review the migration and database configuration before deploying; a redeployment must retain the same persistent `DATABASE_URL`.
 
 Raw CSV uploads and Process Run require Python, NumPy, and pandas. The Node build does not install these. If they are unavailable, use a locally processed CSV instead. See [the data reference](docs/data-format.md).
 
