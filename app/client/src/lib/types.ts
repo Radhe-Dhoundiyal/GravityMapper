@@ -4,6 +4,7 @@ export interface SensorDataPoint {
   device_id?: string;
   experiment_id?: string;
   run_id?: string;
+  runMode?: 'live' | 'simulated';
   latitude: number;
   longitude: number;
   anomalyValue: number;
@@ -50,6 +51,7 @@ export interface ExperimentRun {
   notes: string;
   points: SensorDataPoint[];
   visible: boolean;
+  persisted?: boolean;
   color: string;        // hex color for map / chart
   processingSource?: 'raw' | 'processed';  // how an uploaded run was loaded
   parentExperimentId?: string;             // FK → Experiment.id (optional)
@@ -102,7 +104,7 @@ export interface AppSettings {
 }
 
 export interface AnomalyFilters {
-  minAnomaly: number;
+  minAnomaly: number | null;
   timeRange: 'all' | 'hour' | 'today' | 'week';
 }
 

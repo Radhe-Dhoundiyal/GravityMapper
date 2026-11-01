@@ -83,7 +83,7 @@ function gradientColor(value: number, min: number, max: number): [number, number
 function filteredPointsForRun(run: ExperimentRun, filters: AnomalyFilters, now: Date): SensorDataPoint[] {
   return run.points.filter(p => {
     if (!Number.isFinite(p.latitude) || !Number.isFinite(p.longitude) || !Number.isFinite(p.anomalyValue)) return false;
-    if (p.anomalyValue < filters.minAnomaly) return false;
+    if (filters.minAnomaly !== null && p.anomalyValue < filters.minAnomaly) return false;
     if (filters.timeRange !== 'all') {
       const t = new Date(p.timestamp);
       if (filters.timeRange === 'hour')  return now.getTime() - t.getTime() <= 3_600_000;

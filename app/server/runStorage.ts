@@ -1,209 +1,142 @@
-import * as fs from "fs";
-import * as path from "path";
+import { createHash } from "node:crypto";
+import { eq } from "drizzle-orm";
+import { persistedExperiments as experiments, persistedRuns as runs, persistedUploads as uploads } from "@shared/schema";
 import type { SensorDataPointDTO } from "@shared/schema";
+import { requireDatabase, StorageError } from "./database";
 
 export interface StoredRun {
   experiment_id: string;
+  assigned_experiment_id?: string | null;
   run_id: string;
   device_id: string;
   start_time: string;
   end_time?: string;
   duration?: number;
+  mode?: "live" | "simulated" | "uploaded";
+  processing_source?: "raw" | "processed";
   processing_status?: "unprocessed" | "processing" | "processed" | "failed";
-  run_metadata?: {
-    location?: string;
-    notes?: string;
-  };
-  experiment_metadata?: {
-    location?: string;
-    operator?: string;
-    description?: string;
-    grid_spacing?: string;
-    sensor_configuration?: string;
-    notes?: string;
-  };
-  points: SensorDataPointDTO[];
+  run_metadata?: { location?: string; notes?: string };
+  experiment_metadata?: Record<string, any>;
+  provenance?: { reported_origin: string; independently_verified: false; notes?: string };
+  points: Array<Omit<SensorDataPointDTO, "timestamp"> & { timestamp: string | Date; source_fields?: Record<string, string> }>;
+  processed_points?: Record<string, any>[];
+  source_sha256?: string;
 }
 
-const RUNS_DIR = path.join(process.cwd(), "data", "runs");
-
-function safeSegment(value: string | undefined, fallback: string): string {
-  const cleaned = (value || fallback)
-    .trim()
-    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
-    .replace(/^\.+$/, "_");
-  return cleaned || fallback;
+export function sha256(value: string | Buffer) {
+  return createHash("sha256").update(value).digest("hex");
 }
 
-function runKey(experimentId: string, runId: string): string {
-  return `${experimentId}/${runId}`;
+export function canonicalJson(value: any): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.keys(value).sort().filter(key => value[key] !== undefined).map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+  return JSON.stringify(value);
 }
 
-function timestampToIso(value: unknown): string {
-  const date = value instanceof Date ? value : new Date(String(value));
-  return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
-}
-
-class JsonRunStorage {
-  private runs = new Map<string, StoredRun>();
-  private writeQueues = new Map<string, Promise<void>>();
-
-  constructor() {
-    fs.mkdirSync(RUNS_DIR, { recursive: true });
-    this.loadFromDisk();
+export class PostgresRunStorage {
+  async listRuns(): Promise<StoredRun[]> {
+    const rows = await requireDatabase().select({ document: runs.document, assignment: runs.experimentId, metadata: experiments.metadata })
+      .from(runs).leftJoin(experiments, eq(runs.experimentId, experiments.id));
+    return rows.map(row => ({ ...row.document, assigned_experiment_id: row.assignment, experiment_metadata: row.metadata ?? {} }) as StoredRun)
+      .sort((a, b) => Date.parse(b.start_time) - Date.parse(a.start_time));
   }
 
-  listRuns(): StoredRun[] {
-    return Array.from(this.runs.values())
-      .map((run) => ({
-        ...run,
-        points: [...run.points],
-      }))
-      .sort((a, b) => b.start_time.localeCompare(a.start_time));
+  async getRun(experimentId: string, runId: string): Promise<StoredRun> {
+    const [row] = await requireDatabase().select().from(runs).where(eq(runs.id, runId));
+    if (!row || row.document.experiment_id !== experimentId) throw new StorageError("Stored run not found", 404);
+    return row.document as StoredRun;
   }
 
-  async appendTelemetryPoint(point: SensorDataPointDTO): Promise<void> {
-    const experimentId = safeSegment(point.experiment_id, "unassigned");
-    const runId = safeSegment(point.run_id, "live");
-    const deviceId = point.device_id || "unknown";
-    const key = runKey(experimentId, runId);
-
-    const existing = this.runs.get(key);
-    const run: StoredRun = existing ?? {
-      experiment_id: experimentId,
-      run_id: runId,
-      device_id: deviceId,
-      start_time: timestampToIso(point.timestamp),
-      processing_status: "unprocessed",
-      run_metadata: {
-        location: deviceId,
-        notes: "",
-      },
-      experiment_metadata: {},
-      points: [],
-    };
-
-    run.device_id = run.device_id || deviceId;
-    run.points.push(point);
-    run.end_time = timestampToIso(point.timestamp);
-    run.duration = Math.max(0, (new Date(run.end_time).getTime() - new Date(run.start_time).getTime()) / 1000);
-    this.runs.set(key, run);
-
-    const previousWrite = this.writeQueues.get(key) ?? Promise.resolve();
-    const nextWrite = previousWrite
-      .catch(() => undefined)
-      .then(() => this.writeRunFile(run));
-    this.writeQueues.set(key, nextWrite);
-    await nextWrite;
+  async listExperiments() {
+    return (await requireDatabase().select().from(experiments)).map(row => ({ ...row.metadata, experiment_id: row.id }));
   }
 
-  private loadFromDisk(): void {
-    if (!fs.existsSync(RUNS_DIR)) return;
+  async updateExperimentMetadata(experimentId: string, metadata: Record<string, any>) {
+    return requireDatabase().transaction(async tx => {
+      await tx.insert(experiments).values({ id: experimentId, metadata: {} }).onConflictDoNothing();
+      const [row] = await tx.select().from(experiments).where(eq(experiments.id, experimentId)).for("update");
+      const updated = { ...row.metadata, ...metadata };
+      await tx.update(experiments).set({ metadata: updated }).where(eq(experiments.id, experimentId));
+      return { ...updated, experiment_id: experimentId };
+    });
+  }
 
-    const experimentDirs = fs.readdirSync(RUNS_DIR, { withFileTypes: true });
-    for (const experimentDir of experimentDirs) {
-      if (!experimentDir.isDirectory()) continue;
-
-      const experimentPath = path.join(RUNS_DIR, experimentDir.name);
-      const files = fs.readdirSync(experimentPath, { withFileTypes: true });
-      for (const file of files) {
-        if (!file.isFile() || !file.name.endsWith(".json")) continue;
-
-        const filePath = path.join(experimentPath, file.name);
-        try {
-          const parsed = JSON.parse(fs.readFileSync(filePath, "utf8")) as StoredRun;
-          if (!parsed.experiment_id || !parsed.run_id || !Array.isArray(parsed.points)) {
-            console.warn("[runs] ignored malformed run file:", filePath);
-            continue;
-          }
-
-          const experimentId = safeSegment(parsed.experiment_id, "unassigned");
-          const runId = safeSegment(parsed.run_id, "live");
-          this.runs.set(runKey(experimentId, runId), {
-            experiment_id: experimentId,
-            run_id: runId,
-            device_id: parsed.device_id || "unknown",
-            start_time: parsed.start_time || timestampToIso(parsed.points[0]?.timestamp),
-            end_time: parsed.end_time || timestampToIso(parsed.points[parsed.points.length - 1]?.timestamp),
-            duration: parsed.duration,
-            processing_status: parsed.processing_status || "unprocessed",
-            run_metadata: parsed.run_metadata || {
-              location: parsed.device_id || "unknown",
-              notes: "",
-            },
-            experiment_metadata: parsed.experiment_metadata || {},
-            points: parsed.points,
-          });
-        } catch (err: any) {
-          console.warn("[runs] failed to load run file:", filePath, err?.message ?? err);
-        }
+  async importRun(run: StoredRun, original: Buffer, filename: string, fingerprint: string) {
+    const hash = sha256(original);
+    return requireDatabase().transaction(async tx => {
+      await tx.insert(experiments).values({ id: run.experiment_id, metadata: run.experiment_metadata ?? {} }).onConflictDoNothing();
+      const inserted = await tx.insert(runs).values({
+        id: run.run_id, experimentId: run.experiment_id, fingerprint,
+        document: { ...run, source_sha256: hash },
+      }).onConflictDoNothing().returning({ id: runs.id });
+      const [row] = await tx.select().from(runs).where(eq(runs.id, run.run_id)).for("update");
+      if (!inserted.length && row.fingerprint !== fingerprint) {
+        throw new StorageError("This run ID already exists with different data. The existing run was not changed.", 409);
       }
-    }
-
-    console.log(`[runs] loaded ${this.runs.size} saved run(s) from ${RUNS_DIR}`);
+      await tx.insert(uploads).values({ sha256: hash, runId: run.run_id, filename, originalBase64: original.toString("base64") }).onConflictDoNothing();
+      return { run: { ...row.document, assigned_experiment_id: row.experimentId } as StoredRun, duplicate: !inserted.length, saved: true };
+    });
   }
 
-  private async writeRunFile(run: StoredRun): Promise<void> {
-    const experimentId = safeSegment(run.experiment_id, "unassigned");
-    const runId = safeSegment(run.run_id, "live");
-    const dir = path.join(RUNS_DIR, experimentId);
-    const filePath = path.join(dir, `${runId}.json`);
-    const tmpPath = `${filePath}.tmp`;
-
-    await fs.promises.mkdir(dir, { recursive: true });
-    await fs.promises.writeFile(tmpPath, `${JSON.stringify(run, null, 2)}\n`, "utf8");
-    await fs.promises.rename(tmpPath, filePath);
+  async originalUpload(runId: string) {
+    const [row] = await requireDatabase().select().from(uploads).where(eq(uploads.runId, runId));
+    if (!row) throw new StorageError("No original CSV available for this run", 404);
+    return { filename: row.filename, bytes: Buffer.from(row.originalBase64, "base64"), sha256: row.sha256 };
   }
 
-  async updateRunMetadata(
-    experimentId: string,
-    runId: string,
-    metadata: Partial<NonNullable<StoredRun["run_metadata"]>> & {
-      start_time?: string;
-      end_time?: string;
-      duration?: number;
-      processing_status?: StoredRun["processing_status"];
-    },
-  ): Promise<StoredRun> {
-    const safeExperiment = safeSegment(experimentId, "unassigned");
-    const safeRun = safeSegment(runId, "live");
-    const key = runKey(safeExperiment, safeRun);
-    const run = this.runs.get(key);
-    if (!run) throw new Error(`Stored run not found: ${safeExperiment}/${safeRun}`);
-
-    run.run_metadata = {
-      ...(run.run_metadata || {}),
-      location: metadata.location ?? run.run_metadata?.location,
-      notes: metadata.notes ?? run.run_metadata?.notes,
-    };
-    if (metadata.start_time) run.start_time = timestampToIso(metadata.start_time);
-    if (metadata.end_time) run.end_time = timestampToIso(metadata.end_time);
-    if (typeof metadata.duration === "number" && Number.isFinite(metadata.duration)) run.duration = metadata.duration;
-    if (metadata.processing_status) run.processing_status = metadata.processing_status;
-
-    await this.writeRunFile(run);
-    return { ...run, points: [...run.points] };
+  async removeExperiment(experimentId: string) {
+    return requireDatabase().transaction(async tx => {
+      await tx.update(runs).set({ experimentId: null }).where(eq(runs.experimentId, experimentId));
+      await tx.delete(experiments).where(eq(experiments.id, experimentId));
+    });
   }
 
-  async updateExperimentMetadata(
-    experimentId: string,
-    metadata: NonNullable<StoredRun["experiment_metadata"]>,
-  ): Promise<StoredRun[]> {
-    const safeExperiment = safeSegment(experimentId, "unassigned");
-    const updated: StoredRun[] = [];
+  async appendTelemetryPoint(point: SensorDataPointDTO, source: Record<string, any> = point) {
+    const experimentId = point.experiment_id || "unassigned";
+    const runId = point.run_id || "live";
+    const timestamp = point.timestamp.toISOString();
+    const observation = { ...point, timestamp, source_observation: source };
+    return requireDatabase().transaction(async tx => {
+      await tx.insert(experiments).values({ id: experimentId, metadata: {} }).onConflictDoNothing();
+      await tx.insert(runs).values({ id: runId, experimentId, document: {
+        experiment_id: experimentId, run_id: runId, device_id: point.device_id || "unknown",
+        mode: point.runMode || "live", start_time: timestamp, points: [], processing_status: "unprocessed",
+      } }).onConflictDoNothing();
+      const [row] = await tx.select().from(runs).where(eq(runs.id, runId)).for("update");
+      const run = row.document as StoredRun;
+      if (row.fingerprint || run.experiment_id !== experimentId || run.device_id !== (point.device_id || "unknown")) {
+        throw new StorageError("Run ID conflicts with an existing recording or import", 409);
+      }
+      const existing = run.points.find(p => new Date(p.timestamp).toISOString() === timestamp);
+      if (existing) {
+        if (canonicalJson(existing) !== canonicalJson(observation)) throw new StorageError("Different telemetry already exists at this timestamp", 409);
+        return false;
+      }
+      run.points.push(observation);
+      run.start_time = [run.start_time, timestamp].sort()[0];
+      run.end_time = [run.end_time || timestamp, timestamp].sort().at(-1)!;
+      run.duration = (Date.parse(run.end_time) - Date.parse(run.start_time)) / 1000;
+      await tx.update(runs).set({ document: run }).where(eq(runs.id, runId));
+      return true;
+    });
+  }
 
-    for (const run of Array.from(this.runs.values())) {
-      if (safeSegment(run.experiment_id, "unassigned") !== safeExperiment) continue;
-      run.experiment_metadata = {
-        ...(run.experiment_metadata || {}),
-        ...metadata,
-      };
-      await this.writeRunFile(run);
-      updated.push({ ...run, points: [...run.points] });
-    }
-
-    return updated;
+  async updateRunMetadata(experimentId: string, runId: string, metadata: Record<string, any>): Promise<StoredRun> {
+    return requireDatabase().transaction(async tx => {
+      const [row] = await tx.select().from(runs).where(eq(runs.id, runId)).for("update");
+      if (!row || row.document.experiment_id !== experimentId) throw new StorageError("Stored run not found", 404);
+      const run = row.document as StoredRun;
+      const { assigned_experiment_id: assignment, location, notes, ...fields } = metadata;
+      if (assignment !== undefined && assignment !== null) {
+        const [experiment] = await tx.select().from(experiments).where(eq(experiments.id, assignment));
+        if (!experiment) throw new StorageError("Assigned experiment not found", 404);
+      }
+      run.run_metadata = { ...run.run_metadata, ...(location !== undefined ? { location } : {}), ...(notes !== undefined ? { notes } : {}) };
+      Object.assign(run, fields);
+      await tx.update(runs).set({ document: run, ...(assignment !== undefined ? { experimentId: assignment } : {}) }).where(eq(runs.id, runId));
+      return { ...run, assigned_experiment_id: assignment !== undefined ? assignment : row.experimentId };
+    });
   }
 }
 
-export const runStorage = new JsonRunStorage();
+export const runStorage = new PostgresRunStorage();

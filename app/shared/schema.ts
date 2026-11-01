@@ -1,6 +1,25 @@
-import { pgTable, text, serial, numeric, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, numeric, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
+export const persistedExperiments = pgTable("gm_experiments", {
+  id: text("id").primaryKey(),
+  metadata: jsonb("metadata").$type<Record<string, any>>().notNull(),
+});
+
+export const persistedRuns = pgTable("gm_runs", {
+  id: text("id").primaryKey(),
+  experimentId: text("experiment_id").references(() => persistedExperiments.id),
+  fingerprint: text("fingerprint"),
+  document: jsonb("document").$type<Record<string, any>>().notNull(),
+});
+
+export const persistedUploads = pgTable("gm_uploads", {
+  sha256: text("sha256").primaryKey(),
+  runId: text("run_id").notNull().references(() => persistedRuns.id),
+  filename: text("filename").notNull(),
+  originalBase64: text("original_base64").notNull(),
+});
 
 // Keep the users table as it might be needed for authentication later
 export const users = pgTable("users", {
@@ -83,11 +102,12 @@ export const sensorDataPointSchema = z.object({
   device_id:      z.string().optional(),
   experiment_id:  z.string().optional(),
   run_id:         z.string().optional(),
+  runMode:        z.enum(["live", "simulated"]).optional(),
   // Required — every packet must locate itself + report the headline value
-  latitude:       z.number(),
-  longitude:      z.number(),
-  anomalyValue:   z.number(),
-  timestamp:      z.union([z.string(), z.date()]).transform(v => v instanceof Date ? v : new Date(v)),
+  latitude:       z.number().finite().min(-90).max(90),
+  longitude:      z.number().finite().min(-180).max(180),
+  anomalyValue:   z.number().finite(),
+  timestamp:      z.union([z.string(), z.date()]).transform(v => v instanceof Date ? v : new Date(v)).refine(v => Number.isFinite(v.getTime()), "Invalid timestamp"),
   // IMU
   ax:             z.number().optional(),
   ay:             z.number().optional(),
@@ -107,6 +127,6 @@ export const sensorDataPointSchema = z.object({
   // Derived
   anomalySmoothed:    z.number().optional(),
   platformStationary: z.boolean().optional(),
-});
+}).passthrough();
 
 export type SensorDataPointDTO = z.infer<typeof sensorDataPointSchema>;

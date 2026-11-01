@@ -2,12 +2,13 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs";
 import * as path from "path";
+import { randomUUID } from "node:crypto";
 import { parseCsvContent } from "./csvProcessor";
+import { runStorage } from "./runStorage";
 
 const execFileAsync = promisify(execFile);
 
 const WORKSPACE_ROOT = process.cwd();
-const RUNS_DIR = path.join(WORKSPACE_ROOT, "data", "runs");
 const RAW_RUN_DIR = path.join(WORKSPACE_ROOT, "data", "raw", "processed-runs");
 const PROCESSED_DIR = path.join(WORKSPACE_ROOT, "data", "processed");
 const PIPELINE_SCRIPT = path.join(WORKSPACE_ROOT, "analysis", "scripts", "gravity_pipeline.py");
@@ -135,11 +136,7 @@ function std(values: number[]): number | null {
 export async function processStoredRun(experimentId: string, runId: string): Promise<ProcessRunResult> {
   const safeExperiment = safeSegment(experimentId);
   const safeRun = safeSegment(runId);
-  const runPath = path.join(RUNS_DIR, safeExperiment, `${safeRun}.json`);
-
-  if (!fs.existsSync(runPath)) {
-    throw new Error(`Stored run not found: ${safeExperiment}/${safeRun}`);
-  }
+  const run = await runStorage.getRun(experimentId, runId);
 
   const python = await findPython();
   if (!python) {
@@ -149,28 +146,29 @@ export async function processStoredRun(experimentId: string, runId: string): Pro
     throw new Error(`Pipeline script not found: ${PIPELINE_SCRIPT}`);
   }
 
-  const run = JSON.parse(fs.readFileSync(runPath, "utf8")) as StoredRunFile;
   if (!Array.isArray(run.points) || run.points.length === 0) {
     throw new Error("Stored run has no points to process.");
   }
 
   await fs.promises.mkdir(path.join(RAW_RUN_DIR, safeExperiment), { recursive: true });
-  const rawCsvPath = path.join(RAW_RUN_DIR, safeExperiment, `${safeRun}.csv`);
+  const jobName = `${safeRun}-${randomUUID()}`;
+  const rawCsvPath = path.join(RAW_RUN_DIR, safeExperiment, `${jobName}.csv`);
   await fs.promises.writeFile(rawCsvPath, runToRawCsv(run), "utf8");
 
   await execFileAsync(python, [PIPELINE_SCRIPT, rawCsvPath], { timeout: 120_000 });
 
-  const defaultOutput = path.join(PROCESSED_DIR, `${safeRun}_processed.csv`);
+  const defaultOutput = path.join(PROCESSED_DIR, `${jobName}_processed.csv`);
   if (!fs.existsSync(defaultOutput)) {
     throw new Error(`Pipeline completed but output file was not found: ${defaultOutput}`);
   }
 
   const finalDir = path.join(PROCESSED_DIR, safeExperiment);
   await fs.promises.mkdir(finalDir, { recursive: true });
-  const finalOutput = path.join(finalDir, `${safeRun}_processed.csv`);
+  const finalOutput = path.join(finalDir, `${jobName}_processed.csv`);
   await fs.promises.copyFile(defaultOutput, finalOutput);
 
   const parsed = parseCsvContent(fs.readFileSync(finalOutput, "utf8"), `${safeRun}.csv`);
+  await runStorage.updateRunMetadata(experimentId, runId, { processing_status: "processed", processed_points: parsed.points });
   const anomalyValues = parsed.points
     .map((point) => numberOr(point.anomalyValue, NaN))
     .filter(Number.isFinite);

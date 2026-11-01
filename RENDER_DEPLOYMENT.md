@@ -10,9 +10,17 @@
 | Frontend output | `dist/public` |
 | Server output | `dist/index.js` |
 
-`NODE_ENV=production` selects static frontend serving. Render supplies `PORT`; local development defaults to 5000. `SESSION_SECRET` is reserved and is not currently used for authentication. No database connection is required by the running service.
+`NODE_ENV=production` selects static frontend serving. Render supplies `PORT`; local development defaults to 5000. `SESSION_SECRET` remains unused. Durable storage requires `DATABASE_URL` pointing to persistent PostgreSQL and `GADV_WRITE_TOKEN` (a random secret of at least 32 characters).
 
-Telemetry runs and their metadata are written to `data/runs/<experiment_id>/<run_id>.json` and loaded at startup. Processed CSV files go to `data/processed`. These files survive local restarts, but storage on the deployed service is ephemeral unless a persistent disk is configured. The legacy `/api/anomaly-points` history stays in memory. New experiment assignments also rely on frontend state until metadata can be saved against an existing run.
+After configuring a database, run `npm run db:migrate` once with its `DATABASE_URL`. This command is idempotent and verifies the migration checksum; the server does not run schema changes automatically. Use a persistent database with an appropriate backup/retention policy. Do not use an expiring trial for the only copy of measurements. No hosted database is provisioned by this repository.
+
+CSV originals, their SHA-256 hashes, run observations, processing results, metadata, and experiment assignments are stored in PostgreSQL. An import is acknowledged only after its transaction commits. Reimporting identical rows is idempotent; reusing a run ID with different data returns HTTP 409. Scientific processing keeps derived results separate from source observations. Temporary upload/processing files are not the durable copy.
+
+To transfer existing JSON runs without deleting them, run `npm run db:import-json -- <path-to-runs-directory>` after migration. Conflicts stop the import without overwriting an existing run. Back up those source files before changing hosting. The legacy `/api/anomaly-points` live-history view remains transient; clearing it never deletes saved runs.
+
+All HTTP mutations require `Authorization: Bearer <GADV_WRITE_TOKEN>`. WebSocket mutation messages require a top-level `token` field; read-only dashboard connections still work without a token. Use **Write access** in the Runs tab to enter the token for the current browser session. The token stays in memory and must be re-entered after closing/reloading. Keep it out of source files and device logs. Existing devices must be configured with this token before sending telemetry. Writes fail closed when the token or database is missing. Read endpoints currently remain public.
+
+For local testing, set `TEST_DATABASE_URL` to a separate PostgreSQL database whose name ends in `_test`, then run `npm run test:persistence`. Never point that variable at a production database. Review the migration and database configuration before deploying; a redeployment must retain the same persistent `DATABASE_URL`.
 
 Raw CSV uploads and Process Run require Python, NumPy, and pandas. The Node build does not install these. If they are unavailable, use a locally processed CSV instead. See [the data reference](docs/data-format.md).
 

@@ -1,7 +1,8 @@
 import { useRef, type FC, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Eye, EyeOff, Upload, Database, Trash2, CheckSquare, Square, Loader2, AlertCircle, CheckCircle2, FlaskConical, PlayCircle } from "lucide-react";
+import { Eye, EyeOff, Upload, Download, KeyRound, Database, Trash2, CheckSquare, Square, Loader2, AlertCircle, CheckCircle2, FlaskConical, PlayCircle } from "lucide-react";
+import { requestWriteToken } from "@/lib/api";
 import { ExperimentRun, Experiment } from "@/lib/types";
 
 export type UploadState = "idle" | "uploading" | "processing" | "done" | "error";
@@ -71,6 +72,9 @@ const RunsPanel: FC<RunsPanelProps> = ({
     <div className="flex flex-col h-full">
       {/* Action buttons */}
       <div className="p-3 space-y-2 border-b border-gray-100">
+        <Button variant="outline" size="sm" className="w-full justify-start text-xs" onClick={() => requestWriteToken()}>
+          <KeyRound className="mr-2 h-3.5 w-3.5" /> Write access
+        </Button>
         <Button
           variant="outline" size="sm"
           className="w-full justify-start text-xs"
@@ -119,7 +123,7 @@ const RunsPanel: FC<RunsPanelProps> = ({
         {/* Source badge shown after success */}
         {uploadState === "done" && (
           <div className="text-[10px] text-green-700 bg-green-50 rounded px-2 py-1.5">
-            Run added — check the list below.
+            Run saved in database.
           </div>
         )}
       </div>
@@ -172,13 +176,18 @@ const RunsPanel: FC<RunsPanelProps> = ({
                 <button
                   className="text-gray-300 hover:text-red-500 flex-shrink-0"
                   onClick={() => onDeleteRun(run.id)}
-                  title="Remove run"
+                  title="Remove from this view; saved data is retained"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
               <div className="text-[10px] text-gray-500 pl-7 leading-relaxed">
                 <span className="font-mono truncate block">{run.runId}</span>
+                {run.persisted && run.mode === 'uploaded' && (
+                  <a className="flex w-fit items-center gap-1 my-1 text-blue-600" href={`/api/runs/${encodeURIComponent(run.runId)}/original.csv`} download>
+                    <Download className="h-3 w-3" /> Original CSV
+                  </a>
+                )}
                 <span>{fmt(run.startTime)} · {duration(run)} · {run.points.length} pts</span>
                 {run.notes && <span className="block text-gray-400 truncate">{run.notes}</span>}
                 {onProcessRun && (
