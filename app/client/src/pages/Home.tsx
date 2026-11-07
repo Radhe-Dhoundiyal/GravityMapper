@@ -386,7 +386,7 @@ const Home: React.FC = () => {
   const [uploadError, setUploadError]   = useState<string | undefined>(undefined);
   const [processingRunIds, setProcessingRunIds] = useState<string[]>([]);
 
-  // ── Legacy live-stream state (still used for DataStreamPanel & stats) ───────
+  // Transient live-stream state, separate from saved runs.
   const [dataLogs, setDataLogs]         = useState<SensorDataPoint[]>([]);
   const [statistics, setStatistics]     = useState<AnomalyStatistics>({
     totalAnomalies: 0, lowAnomalies: 0, mediumAnomalies: 0, highAnomalies: 0, maxAnomaly: 0, avgAnomaly: 0,
@@ -637,7 +637,6 @@ const Home: React.FC = () => {
     if (isStreaming) {
       setIsStreaming(false);
       if (simulationInterval) { clearInterval(simulationInterval); simulationInterval = null; }
-      // Close the active run
       setRuns(prev => {
         const idx = prev.findIndex(r => r.id === activeRunId);
         if (idx === -1) return prev;
@@ -654,7 +653,6 @@ const Home: React.FC = () => {
       setActiveRunId(null);
       showToast('Stream stopped', 'info');
     } else {
-      // Create a new live run
       const run = createLiveRun();
       setRuns(prev => [run, ...prev]);
       setActiveRunId(run.id);
@@ -670,13 +668,9 @@ const Home: React.FC = () => {
   }, [connectionStatus, wsConnected, isStreaming, createLiveRun, connectionSettings.connectionType, activeRunId, showToast]);
 
   // ── Simulate sensor data ───────────────────────────────────────────────────
-  // Generates a realistic packet via a persistent random-walk (so successive
-  // values are correlated, not white-noise), then ships it through the SAME
-  // WebSocket pipe future ESP32 firmware will use. The packet round-trips
-  // through the server, gets validated against `sensorDataPointSchema`, and
-  // arrives back via `handleWebSocketMessage` → `addLivePoint`.
-  // Reads `simWalk` (module-level) instead of `dataLogs` so the callback
-  // identity stays stable while still drifting smoothly across ticks.
+  // Send synthetic random-walk packets through the shared WebSocket ingestion path.
+  // Module-level simWalk keeps successive values correlated without changing
+  // the callback identity on each dataLogs update.
   const generateSimulatedData = useCallback(() => {
     // Seed the walk lazily off the user's configured default location.
     if (simWalk.lat === 0 && simWalk.lng === 0) {
@@ -698,7 +692,7 @@ const Home: React.FC = () => {
     const anomalyValue    = +(simWalk.baseAnomaly + spike + Math.random() * 0.05).toFixed(4);
     const anomalySmoothed = +(simWalk.baseAnomaly + Math.random() * 0.02).toFixed(4);
 
-    // GPS velocity from drift (m/s ≈ degrees * 111000 per tick / dt)
+    // Synthetic speed (m/s), independent of the position random walk.
     const speed = +((Math.random() * 0.6 + 0.2)).toFixed(2);
 
     const dataPoint: SensorDataPoint = {
@@ -1035,7 +1029,6 @@ const Home: React.FC = () => {
       showToast(data.duplicate ? `Run already saved: ${newRun.runId}` : `Saved ${newRun.runId}: ${newRun.points.length} samples`, 'success');
       if (data.warnings?.length) showToast(data.warnings[0], 'warning');
 
-      // Reset to idle after 4 s
       setTimeout(() => setUploadState('idle'), 4000);
     } catch (err: any) {
       clearTimeout(processingTimer);
@@ -1279,7 +1272,6 @@ const Home: React.FC = () => {
     window.dispatchEvent(new CustomEvent('map:center', { detail }));
   }, [lastDataPoint, settings.defaultLat, settings.defaultLng]);
 
-  // Cleanup
   useEffect(() => () => {
     if (simulationInterval) { clearInterval(simulationInterval); simulationInterval = null; }
   }, []);

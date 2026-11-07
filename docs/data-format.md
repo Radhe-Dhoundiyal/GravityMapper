@@ -45,9 +45,9 @@ The pipeline writes `<input-stem>_processed.csv` and updates `run_summary.csv` u
 
 ## Scientific Integrity and Missing Data
 
-Do not infer physical sensor values from absent fields. Run reprocessing writes empty CSV cells for unknown IMU axes, pressure, temperatures, GPS quality, altitude and stationary/isolation flags. It never invents a timestamp, a 1g vertical reading, standard-atmosphere pressure, a GPS fix, or a stationary state. An unavailable input may make a corrected anomaly impossible; this is preferable to an apparently plausible but fabricated value.
+Run reprocessing leaves unknown sensor measurements, GPS quality, and stationary/isolation flags empty. Missing or invalid timestamps are rejected. When required sensor measurements are unavailable, the corresponding corrected anomaly remains missing.
 
-The Python pipeline computes `anomaly_proxy_mgal` only when the measured inputs, altitude correction and WGS-84 latitude correction are valid. A valid GPS fix, latitude and longitude are necessary for its WGS-84 term. `anomaly_no_lat_mgal` is retained solely as a diagnostic vertical-gravity proxy and **must not** be interpreted as an anomaly. For CSV compatibility, `anomaly_best_mgal` now equals the corrected proxy only, and missing/filtered samples stay missing through smoothing and outlier rejection. The pipeline is still an uncalibrated, sensor-derived proxy; it does not demonstrate geophysical measurement accuracy.
+The Python pipeline computes `anomaly_proxy_mgal` only with measured acceleration, usable altitude, and a valid GPS fix and position for the WGS-84 latitude correction. `anomaly_no_lat_mgal` is a diagnostic vertical-gravity proxy, not an anomaly. For CSV compatibility, `anomaly_best_mgal` equals the corrected proxy; missing or filtered samples stay missing through smoothing and outlier rejection. These are uncalibrated sensor proxies, not validated geophysical measurements.
 
 The map labels region rankings **Relative score** rather than statistical confidence. A score of 1 means highest *within the currently selected regions*, not a 100% probability of a real anomaly. CSV/JSON exports and Markdown reports use `relative_score`.
 
