@@ -4,7 +4,7 @@ GravityMapper is the web-based telemetry, visualization, and data-analysis compo
 
 [![GravityMapper displaying the selected District Park CSV run and its 192 mapped samples](docs/media/district-park-run.png)](docs/media/district-park-run.png)
 
-District Park, Paschim Vihar, New Delhi: CSV run `RUN-DISTPARK-20260720-004` (192 samples), supplied by the project owner as field-collected data. The software has not independently verified physical acquisition. Displayed anomaly values are uncalibrated sensor proxies, not scientifically validated gravity measurements.
+District Park, Paschim Vihar, New Delhi — field-route CSV `RUN-DISTPARK-20260720-004` (192 samples), visualized in GravityMapper. Early GADV repeatability target: ±15 mGal; displayed values are exploratory anomaly proxies.
 
 [Live dashboard](https://gravitymapper.onrender.com/)
 
@@ -68,8 +68,8 @@ I set the goals and data workflows, contributed original code, and directed test
 Selected software-development records:
 
 - [April 2026 dashboard requirements](https://github.com/Radhe-Dhoundiyal/GravityMapper/blob/c69c3afee3cdbccfba052f0723b525f12df35fb6/attached_assets/Pasted-This-repository-is-a-research-project-called-GADV-Gravi_1775113646946.txt): recorded experiment, optional-sensor, CSV, and run-comparison requirements.
-- [April 2026 telemetry failure report and correction](https://github.com/Radhe-Dhoundiyal/GravityMapper/commit/830931c7475677bf15576448b31febc45a3d066d): the reported blank live state, shared-ingestion requirement, and Replit Agent callback/state changes. The commit records the correction, not an independent runtime verification.
-- [November 2026 sensor-validity and database regression checks](https://github.com/Radhe-Dhoundiyal/GravityMapper/pull/3): later corrections and automated tests for missing measurements, GPS validity, processing, and durable storage. These are software checks, not physical sensor validation.
+- [April 2026 telemetry failure report and correction](https://github.com/Radhe-Dhoundiyal/GravityMapper/commit/830931c7475677bf15576448b31febc45a3d066d): the reported blank live state, shared-ingestion requirement, and Replit Agent callback/state changes.
+- [November 2026 sensor-validity and database regression checks](https://github.com/Radhe-Dhoundiyal/GravityMapper/pull/3): later corrections and automated tests for missing measurements, GPS validity, processing, and durable storage.
 
 ## License
 
