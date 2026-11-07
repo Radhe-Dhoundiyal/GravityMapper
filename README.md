@@ -2,9 +2,9 @@
 
 GravityMapper is the web-based telemetry, visualization, and data-analysis component of GADV, a broader rover engineering project. Mechanical CAD, electronics, and PCB development are maintained separately.
 
-[![GravityMapper instrument console with a selected synthetic run and mapped sample points](docs/media/dashboard-overview.png)](docs/media/dashboard-overview.png)
+[![GravityMapper displaying the selected District Park CSV run and its 192 mapped samples](docs/media/district-park-run.png)](docs/media/district-park-run.png)
 
-The instrument console displaying built-in synthetic sample data, with a selected run and mapped points. No physical telemetry is being acquired.
+District Park, Paschim Vihar, New Delhi: CSV run `RUN-DISTPARK-20260720-004` (192 samples), supplied by the project owner as field-collected data. The software has not independently verified physical acquisition. Displayed anomaly values are uncalibrated sensor proxies, not scientifically validated gravity measurements.
 
 [Live dashboard](https://gravitymapper.onrender.com/)
 
@@ -22,7 +22,7 @@ The Python pipeline processes raw sensor logs with tilt compensation, altitude a
 
 [![GravityMapper run analysis with a time-series plot and sample statistics](docs/media/run-analysis.png)](docs/media/run-analysis.png)
 
-Plots and statistics for the same built-in synthetic demonstration run. These values are examples, not calibrated gravity measurements. Open either image for full-size labels.
+Plots and statistics for a built-in synthetic demonstration run, illustrating the application's analytical capabilities. These example values are not physical measurements. Open either image for full-size labels.
 
 ## Technology and Layout
 
