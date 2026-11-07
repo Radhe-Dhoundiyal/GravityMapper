@@ -10,7 +10,7 @@
 | Frontend output | `dist/public` |
 | Server output | `dist/index.js` |
 
-`NODE_ENV=production` selects static frontend serving. Render supplies `PORT`; local development defaults to 5000. `SESSION_SECRET` remains unused. Durable storage requires `DATABASE_URL` pointing to persistent PostgreSQL and `GADV_WRITE_TOKEN` (a random secret of at least 32 characters).
+`NODE_ENV=production` selects static frontend serving. Render supplies `PORT`; local development defaults to 5000. Durable storage requires `DATABASE_URL` pointing to persistent PostgreSQL and `GADV_WRITE_TOKEN` (a random secret of at least 32 characters).
 
 After configuring a database, run `npm run db:migrate` once with its `DATABASE_URL`. This command is idempotent and verifies the migration checksum; the server does not run schema changes automatically. Use a persistent database with an appropriate backup/retention policy. Do not use an expiring trial for the only copy of measurements. No hosted database is provisioned by this repository.
 

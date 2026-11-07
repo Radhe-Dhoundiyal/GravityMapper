@@ -21,6 +21,3 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      # SESSION_SECRET is reserved for future cookie/session support.
-      - key: SESSION_SECRET
-        generateValue: true
