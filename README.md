@@ -2,6 +2,10 @@
 
 GravityMapper is the web-based telemetry, visualization, and data-analysis component of GADV, a broader rover engineering project. Mechanical CAD, electronics, and PCB development are maintained separately.
 
+[![GravityMapper instrument console with a selected synthetic run and mapped sample points](docs/media/dashboard-overview.png)](docs/media/dashboard-overview.png)
+
+The instrument console displaying built-in synthetic sample data, with a selected run and mapped points. No physical telemetry is being acquired.
+
 [Live dashboard](https://gravitymapper.onrender.com/)
 
 ## Why I Built It
@@ -13,6 +17,12 @@ I built GravityMapper to bring incoming rover readings, their locations, and run
 The dashboard receives telemetry over WebSocket or HTTP, records runs, groups them into experiments, and displays statistics and plots. Maps can show points, interpolated heatmaps, gradients, and detected regions. A survey grid helps track coverage. Data and summaries can be exported as CSV, JSON, or a Markdown report.
 
 The Python pipeline processes raw sensor logs with tilt compensation, altitude and latitude corrections, smoothing, and outlier filtering. Processed CSV files can also be imported directly.
+
+## Application Preview
+
+[![GravityMapper run analysis with a time-series plot and sample statistics](docs/media/run-analysis.png)](docs/media/run-analysis.png)
+
+Plots and statistics for the same built-in synthetic demonstration run. These values are examples, not calibrated gravity measurements. Open either image for full-size labels.
 
 ## Technology and Layout
 
@@ -54,6 +64,12 @@ Sensor-derived anomaly values are proxies, not calibrated gravitational measurem
 ## Development
 
 I set the goals and data workflows, contributed original code, and directed testing and revisions. ChatGPT, Codex and Replit Agent contributed substantial software implementation and debugging.
+
+Selected software-development records:
+
+- [April 2026 dashboard requirements](https://github.com/Radhe-Dhoundiyal/GravityMapper/blob/c69c3afee3cdbccfba052f0723b525f12df35fb6/attached_assets/Pasted-This-repository-is-a-research-project-called-GADV-Gravi_1775113646946.txt): recorded experiment, optional-sensor, CSV, and run-comparison requirements.
+- [April 2026 telemetry failure report and correction](https://github.com/Radhe-Dhoundiyal/GravityMapper/commit/830931c7475677bf15576448b31febc45a3d066d): the reported blank live state, shared-ingestion requirement, and Replit Agent callback/state changes. The commit records the correction, not an independent runtime verification.
+- [November 2026 sensor-validity and database regression checks](https://github.com/Radhe-Dhoundiyal/GravityMapper/pull/3): later corrections and automated tests for missing measurements, GPS validity, processing, and durable storage. These are software checks, not physical sensor validation.
 
 ## License
 
