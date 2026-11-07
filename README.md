@@ -1,10 +1,10 @@
 # GravityMapper
 
-GravityMapper is the web-based telemetry, visualization, and data-analysis component of GADV, a broader rover engineering project. Mechanical CAD, electronics, and PCB development are maintained separately.
+GravityMapper is the mapping and data-analysis app for GADV, my rover project. It brings GPS routes, sensor readings, and run comparisons together in one dashboard. The mechanical CAD, electronics, and PCB work are kept separately.
 
 [![GravityMapper displaying the selected District Park CSV run and its 192 mapped samples](docs/media/district-park-run.png)](docs/media/district-park-run.png)
 
-District Park, Paschim Vihar, New Delhi — field-route CSV `RUN-DISTPARK-20260720-004` (192 samples), visualized in GravityMapper. Early GADV repeatability target: ±15 mGal; displayed values are exploratory anomaly proxies.
+District Park, Paschim Vihar, New Delhi — field-route CSV `RUN-DISTPARK-20260720-004` (192 samples) mapped in GravityMapper. Approximate expected offset: ±15 mGal; the plotted anomaly values are uncalibrated.
 
 [Live dashboard](https://gravitymapper.onrender.com/)
 
@@ -22,7 +22,7 @@ The Python pipeline processes raw sensor logs with tilt compensation, altitude a
 
 [![GravityMapper run analysis with a time-series plot and sample statistics](docs/media/run-analysis.png)](docs/media/run-analysis.png)
 
-Plots and statistics for a built-in synthetic demonstration run, illustrating the application's analytical capabilities. These example values are not physical measurements. Open either image for full-size labels.
+A built-in synthetic run showing statistics and a time-series plot. These are example values, not field measurements. Open either image for full-size labels.
 
 ## Technology and Layout
 
@@ -59,18 +59,16 @@ Use `npm run check` and `npm run build` to check types and produce `dist/public`
 
 ## Measurement Limits
 
-Sensor-derived anomaly values are proxies, not calibrated gravitational measurements. Synthetic examples are demonstration data. Heatmaps, gradients, and relative region scores help inspect the input; they do not establish geological findings or detection accuracy.
+The anomaly values are sensor-derived estimates, not calibrated gravity measurements. Heatmaps, gradients, and region scores help explore the data; they are not geological findings. Built-in synthetic runs are demonstrations.
 
-## Development
+## Development Notes
 
-I set the goals and data workflows, contributed original code, and directed testing and revisions. ChatGPT, Codex and Replit Agent contributed substantial software implementation and debugging.
-
-Selected software-development records:
+A few records show how the app developed:
 
 - [April 2026 dashboard requirements](https://github.com/Radhe-Dhoundiyal/GravityMapper/blob/c69c3afee3cdbccfba052f0723b525f12df35fb6/attached_assets/Pasted-This-repository-is-a-research-project-called-GADV-Gravi_1775113646946.txt): recorded experiment, optional-sensor, CSV, and run-comparison requirements.
-- [April 2026 telemetry failure report and correction](https://github.com/Radhe-Dhoundiyal/GravityMapper/commit/830931c7475677bf15576448b31febc45a3d066d): the reported blank live state, shared-ingestion requirement, and Replit Agent callback/state changes.
+- [April 2026 telemetry failure report and correction](https://github.com/Radhe-Dhoundiyal/GravityMapper/commit/830931c7475677bf15576448b31febc45a3d066d): the blank live-data view, the shared telemetry path, and the callback/state fixes.
 - [November 2026 sensor-validity and database regression checks](https://github.com/Radhe-Dhoundiyal/GravityMapper/pull/3): later corrections and automated tests for missing measurements, GPS validity, processing, and durable storage.
 
 ## License
 
-See [LICENSE](LICENSE).
+See [acknowledgments](ACKNOWLEDGMENTS.md) for development credits and [LICENSE](LICENSE) for licensing.
