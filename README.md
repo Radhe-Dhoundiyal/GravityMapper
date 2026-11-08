@@ -61,13 +61,11 @@ Use `npm run check` and `npm run build` to check types and produce `dist/public`
 
 The anomaly values are sensor-derived estimates, not calibrated gravity measurements. Heatmaps, gradients, and region scores help explore the data; they are not geological findings. Built-in synthetic runs are demonstrations.
 
-## Development Notes
+## How It Developed
 
-A few records show how the app developed:
+GravityMapper started as a map of anomaly points. I later expanded the idea to include named runs and experiments, CSV imports, time-series plots, and run comparisons.
 
-- [April 2026 dashboard requirements](https://github.com/Radhe-Dhoundiyal/GravityMapper/blob/c69c3afee3cdbccfba052f0723b525f12df35fb6/attached_assets/Pasted-This-repository-is-a-research-project-called-GADV-Gravi_1775113646946.txt): recorded experiment, optional-sensor, CSV, and run-comparison requirements.
-- [April 2026 telemetry failure report and correction](https://github.com/Radhe-Dhoundiyal/GravityMapper/commit/830931c7475677bf15576448b31febc45a3d066d): the blank live-data view, the shared telemetry path, and the callback/state fixes.
-- [November 2026 sensor-validity and database regression checks](https://github.com/Radhe-Dhoundiyal/GravityMapper/pull/3): later corrections and automated tests for missing measurements, GPS validity, processing, and durable storage.
+During telemetry testing, incoming points sometimes failed to appear in the live view. The WebSocket and display-state handling were corrected. Later checks exposed misleading anomaly values when sensor or GPS inputs were missing, so the processing now leaves incomplete corrected results blank. Run storage and regression tests were also added.
 
 ## License
 
