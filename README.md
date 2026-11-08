@@ -63,10 +63,13 @@ The anomaly values are sensor-derived estimates, not calibrated gravity measurem
 
 ## How It Developed
 
-GravityMapper started as a map of anomaly points. I later expanded the idea to include named runs and experiments, CSV imports, time-series plots, and run comparisons.
+GravityMapper began as a map for anomaly points. As I started planning longer surveys, I wanted each point tied to a run and experiment rather than just a location. The app grew to support CSV uploads, run histories, statistics, time-series plots, and comparisons.
 
-During telemetry testing, incoming points sometimes failed to appear in the live view. The WebSocket and display-state handling were corrected. Later checks exposed misleading anomaly values when sensor or GPS inputs were missing, so the processing now leaves incomplete corrected results blank. Run storage and regression tests were also added.
+Live telemetry was an early hurdle. In testing, packets reached the server but did not show up on the dashboard. The WebSocket message flow and display-state updates needed fixing; later, connection indicators and automatic reconnection made failures easier to notice. Deployment took a few rounds too, especially getting the frontend, API, and live connection to work together on Render.
 
+CSV imports brought a different set of problems. Raw logs needed the Python pipeline, while processed files could load directly. A minimum-anomaly filter accidentally hid negative readings, and imported runs were not originally durable across reloads. The filter was corrected and PostgreSQL storage was added for runs, metadata, and original CSV files.
+
+Later tests exposed cases where missing sensor or GPS fields could lead to misleading anomaly values. Processing now leaves corrected results blank when the required inputs are unavailable, without filling invalid points through smoothing. Integrity, pipeline, and database tests were added alongside these fixes. The same dashboard now handles the District Park and Gairsain field routes and labelled synthetic examples.
 ## License
 
 See [acknowledgments](ACKNOWLEDGMENTS.md) for development credits and [LICENSE](LICENSE) for licensing.
